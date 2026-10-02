@@ -100,8 +100,7 @@ class DbSaveApi:
         try:
             kind = getattr(getattr(webview,'FileDialog',None), 'FOLDER' if folder else 'OPEN', None)
             if kind is None: kind=webview.FOLDER_DIALOG if folder else webview.OPEN_DIALOG
-            # MIETEK_DIALOG_MEMORY_V8
-            chosen=self.window.create_file_dialog(kind,directory=self._last_dialog_directory(folder),allow_multiple=not folder)
+            chosen=self.window.create_file_dialog(kind,allow_multiple=not folder)
             if not chosen:return {'ok':False,'cancelled':True}
             paths=[]
             if folder:
@@ -117,7 +116,6 @@ class DbSaveApi:
             for p in sorted(paths,key=lambda p:str(p).casefold()):
                 token=uuid.uuid4().hex;self.sources[token]=p
                 result.append({'name':p.name,'relative':root.name+'/'+p.relative_to(root).as_posix(),'token':token,'data':base64.b64encode(p.read_bytes()).decode('ascii')})
-            self._remember_dialog_directory(chosen,folder)
             return {'ok':True,'files':result}
         except Exception as e:return {'ok':False,'error':str(e)}
 
@@ -142,48 +140,3 @@ class DbSaveApi:
     def updater_install(self,tag):
         if not hasattr(self,'_updater'):return {'ok':False,'error':'Najpierw sprawdź aktualizacje.'}
         return self._updater.install(tag)
-
-
-    def _dialog_prefs_path(self):
-        import os
-        from pathlib import Path
-        base = Path(os.environ.get('APPDATA') or (Path.home()/'.config'))
-        return base/'MIETEK-v2'/'dialog_locations.json'
-
-    def _read_dialog_prefs(self):
-        import json
-        try:
-            data=json.loads(self._dialog_prefs_path().read_text(encoding='utf-8'))
-            return data if isinstance(data,dict) else {}
-        except (OSError,ValueError):return {}
-
-    def _last_dialog_directory(self, folder):
-        from pathlib import Path
-        data=self._read_dialog_prefs()
-        key='folder' if folder else 'files'
-        for value in (data.get(key),data.get('last')):
-            if not isinstance(value,str) or not value:continue
-            try:
-                p=Path(value)
-                while not p.is_dir() and p!=p.parent:p=p.parent
-                if p.is_dir():return str(p)
-            except OSError:pass
-        return str(Path.home())
-
-    def _remember_dialog_directory(self, chosen, folder):
-        import json,os,tempfile
-        from pathlib import Path
-        try:
-            directory=Path(chosen[0]) if folder else Path(chosen[0]).parent
-            data=self._read_dialog_prefs()
-            data['folder' if folder else 'files']=str(directory)
-            data['last']=str(directory)
-            p=self._dialog_prefs_path();p.parent.mkdir(parents=True,exist_ok=True)
-            fd,tmp=tempfile.mkstemp(prefix='locations-',suffix='.tmp',dir=p.parent)
-            try:
-                with os.fdopen(fd,'w',encoding='utf-8') as stream:
-                    json.dump(data,stream,ensure_ascii=False);stream.flush();os.fsync(stream.fileno())
-                os.replace(tmp,p)
-            finally:
-                if os.path.exists(tmp):os.unlink(tmp)
-        except (OSError,ValueError):pass

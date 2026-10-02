@@ -378,10 +378,9 @@ pre.raport{color:#0b0f14}
 <header class="top">
   <h1><img class="logo" src="../docs/images/forestly-logo.png" alt="Logo FORESTLY"> <span id="app-name">MIETEK v2</span><span class="app-sub">by FORESTLY</span></h1>
   <div id="drop">
-    <span>Wczytaj dane MIETKA</span>
-    <button type="button" class="min" id="native-files-v9">Wybierz pliki</button>
-    <button type="button" class="min" id="native-folder-v9">Wybierz folder</button>
-    <input id="load-input" type="file" multiple webkitdirectory directory accept=".dbf,.DBF,.lst,.LST" style="display:none">
+    <span>Przeciągnij folder MIETKA (DBF) tutaj</span>
+    <label for="load-input">albo wybierz pliki</label>
+    <input id="load-input" type="file" multiple webkitdirectory directory accept=".dbf,.DBF,.lst,.LST">
   </div>
   <div id="status"></div>
   <button id="btn-theme" title="Przełącz jasny / ciemny motyw">🌓 Motyw</button>
@@ -2122,18 +2121,6 @@ pre.raport{color:#0b0f14}
   }
 
   /* ================================================== ZDARZENIA ======= */
-  // MIETEK_IMPORT_BINDING_V9
-  document.addEventListener('click',function(e){
-    var button=e.target.closest&&e.target.closest('#native-files-v9,#native-folder-v9');
-    if(!button)return;
-    e.preventDefault();e.stopImmediatePropagation();
-    if(!window.pywebview||!window.pywebview.api||typeof window.pywebview.api.load_native!=='function'){
-      alert('Natywny import nie jest jeszcze gotowy. Poczekaj chwilę. Jeśli komunikat się powtarza, uruchom źródła przez uruchom.bat lub przebuduj EXE.');return;
-    }
-    if(Object.keys(S.brudne).length&&!confirm('Wczytanie nowych danych zastąpi bieżące dane i niezapisane zmiany. Kontynuować?'))return;
-    wczytajNatywnie(button.id==='native-folder-v9');
-  },true);
-
   async function wczytajNatywnie(folder) {
     try {
       var result=await window.pywebview.api.load_native(folder);
