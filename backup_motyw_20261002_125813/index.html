@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-<script>document.documentElement.setAttribute("data-theme","light");</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MIETEK v2 by FORESTLY</title>
@@ -2536,8 +2535,8 @@ pre.raport{color:#0b0f14}
 (function(){
   var KEY="mietek_theme";
   function apply(t){ document.documentElement.setAttribute("data-theme", t); try{localStorage.setItem(KEY,t);}catch(e){} }
-  // MIETEK_LIGHT_START_V7: every launch starts in light mode.
-  apply("light");
+  var saved="dark"; try{ saved=localStorage.getItem(KEY)||"dark"; }catch(e){}
+  apply(saved);
   document.addEventListener("click", function(e){
     if(e.target && e.target.id==="btn-theme"){
       var cur=document.documentElement.getAttribute("data-theme")==="light"?"light":"dark";
