@@ -1231,6 +1231,17 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     return TILE;
   }
 
+  // Gatunki z kafelka "Drzewostan" w kolejności ze składu (z wiekiem) — do uzupełniania elementów R.
+  function gatunkiDrzewostanu(rec) {
+    var out = [];
+    (pobierzKafelki(rec) || []).forEach(function (t) {
+      if (t && t.t === "drzew" && t.sklad) t.sklad.forEach(function (sk) {
+        if (sk && sk.g) out.push({ g: String(sk.g).trim(), w: String(sk.w == null ? "" : sk.w).trim() });
+      });
+    });
+    return out;
+  }
+
   function builderOpisu(r) {
     var h = [];
     h.push('<div class="karta">');
@@ -2445,7 +2456,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     }
     if (!d) return;
     if (d.dzial) { var rwD2 = rekordWydz(); if (rwD2) { dzialkaUstaw(rwD2.rec, t.value); uzupelnijPowierzchnie(false); } return; }
-    if (d.pole) { zapiszO(d.pole, t.value); odswiezWszystko(); return; }
+    if (d.pole) { zapiszO(d.pole, t.value, true); odswiezWszystko(); return; }
     if (d.wsie) { zapiszWsie(d.wsie, t.dataset.data ? String(t.value||"").replace(/[^0-9]/g,"") : t.value); return; }
     if (d.w != null) { zapiszW(+d.w, d.p, t.value); return; }
     if (d.d != null) { zapiszD(+d.d, d.p, t.value); return; }
@@ -2611,8 +2622,35 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     var badge = document.querySelector('.pow-badge'); if (badge) badge.textContent = fmtNum(val) + ' ha';
     if (brak.length && !silent) console.warn("Nie znaleziono działek: " + brak.join(", "));
   }
+  // Wpisujesz oddział + pododdział -> program sam uzupełnia numer działki (wszystkie pasujące
+  // działki z pliku D) oraz powierzchnię wydzielenia (suma ich powierzchni).
+  function uzupelnijZDzialek() {
+    var rw = rekordWydz(); if (!rw) return;
+    var od = String(rw.rec.ODDZIAL == null ? "" : rw.rec.ODDZIAL).trim().toUpperCase();
+    var pd = String(rw.rec.PODODDZ == null ? "" : rw.rec.PODODDZ).trim().toUpperCase();
+    if (!od && !pd) return;
+    var d = S.aktywny && S.aktywny.pliki.D; if (!d) return;
+    var dop = d.parsed.rekordy.filter(function (x) {
+      return String(x.ODDZIAL == null ? "" : x.ODDZIAL).trim().toUpperCase() === od &&
+             String(x.PODODDZ == null ? "" : x.PODODDZ).trim().toUpperCase() === pd;
+    });
+    if (!dop.length) return;
+    var numery = [], seen = {}, suma = 0;
+    dop.forEach(function (x) {
+      var n = String(x.NR_DZIAL == null ? "" : x.NR_DZIAL).trim();
+      if (n && !seen[n]) { seen[n] = 1; numery.push(n); }
+      suma += parseFloat(String(x.POW == null ? "" : x.POW).replace(",", ".")) || 0;
+    });
+    var txt = numery.join(",");
+    if (dzialkaPobierz(rw.rec) !== txt) dzialkaUstaw(rw.rec, txt);
+    var val = suma.toFixed(4);
+    if (String(rw.rec.POW_WYDZ) !== val) { rw.rec.POW_WYDZ = val; oznaczZmiane("O", rw.idx); }
+    var di = document.querySelector('input[data-dzial]'); if (di) di.value = txt;
+    var pi = document.querySelector('input[data-pole="POW_WYDZ"]'); if (pi) pi.value = val;
+    var badge = document.querySelector('.pow-badge'); if (badge) badge.textContent = fmtNum(val) + ' ha';
+  }
 
-  function zapiszO(pole, val) {
+  function zapiszO(pole, val, finalny) {
     var rw = rekordWydz(); if (!rw) return;
     var staryKlucz = kluczNr(rw.rec);          // przed zmianą oddz./pododdz.
     if (rw.rec[pole] !== val) { rw.rec[pole] = val; oznaczZmiane("O", rw.idx); }
@@ -2620,6 +2658,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
       przeniesLokalne(staryKlucz, kluczNr(rw.rec));   // nr porządkowy i nr działki idą z wydzieleniem
       if (pole === "ODDZIAL" && S.wybrane) S.wybrane.oddz = val;
       if (pole === "PODODDZ" && S.wybrane) S.wybrane.pod = val;
+      if (finalny) uzupelnijZDzialek();               // sam wpisz działki i pow. wydz. z pliku D
     }
   }
   function zapiszD(i, p, v) {
@@ -2639,6 +2678,20 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     var rw = rekordWydz(); if (!rw || !S.aktywny.pliki.R) { alert("Brak pliku R."); return; }
     var nowy = {}; S.aktywny.pliki.R.parsed.pola.forEach(function (f) { nowy[f.nazwa] = ""; });
     nowy.ODDZIAL = rw.rec.ODDZIAL; nowy.PODODDZ = rw.rec.PODODDZ; nowy.PRZES = "F";
+    // Gatunek i wiek od razu z drzewostanu: pierwszy gatunek ze składu (a przy kolejnych
+    // elementach — pierwszy jeszcze nieużyty), wraz z jego wiekiem.
+    var dg = gatunkiDrzewostanu(rw.rec);
+    if (dg.length) {
+      var uzyte = {};
+      S.aktywny.pliki.R.parsed.rekordy.forEach(function (x) {
+        if (x.ODDZIAL === rw.rec.ODDZIAL && x.PODODDZ === rw.rec.PODODDZ) uzyte[String(x.GATUNEK || "").trim().toUpperCase()] = 1;
+      });
+      var wybrany = null;
+      for (var k = 0; k < dg.length; k++) { if (!uzyte[dg[k].g.toUpperCase()]) { wybrany = dg[k]; break; } }
+      if (!wybrany) wybrany = dg[0];
+      nowy.GATUNEK = wybrany.g;
+      if (wybrany.w) { nowy.WIEK = wybrany.w; nowy.KL_WIEK = klasaWieku(wybrany.w) || ""; }
+    }
     var i = S.aktywny.pliki.R.parsed.rekordy.length;
     S.aktywny.pliki.R.parsed.rekordy.push(nowy); oznaczZmiane("R", i); odswiezWidok();
   }
