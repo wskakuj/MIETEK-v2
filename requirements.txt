@@ -1,0 +1,4 @@
+# MIETEK v2 by FORESTLY - zaleznosci (tylko do okna natywnego / budowy EXE)
+pywebview>=5.0
+pythonnet>=3.0;platform_system=="Windows"
+pyinstaller>=6.0
