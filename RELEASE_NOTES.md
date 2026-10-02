@@ -1,3 +1,3 @@
-# Co nowego w v2.0.1
-- exe
+# Co nowego w v2.0.2
 
+- 

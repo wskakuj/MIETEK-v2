@@ -20,8 +20,8 @@ code{font-family:"Consolas",monospace}
 /* ---------- topbar ---------- */
 header.top{background:linear-gradient(135deg,var(--ziel),var(--ziel-c));color:#fff;padding:10px 16px;
   display:flex;align-items:center;gap:16px;flex-wrap:wrap;box-shadow:0 2px 6px rgba(0,0,0,.15);z-index:5}
-header.top h1{font-size:17px;display:flex;align-items:center;gap:8px}
-header.top h1 .logo{font-size:20px}
+header.top h1{font-size:17px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+header.top h1 .logo{width:40px;height:40px;border-radius:11px;object-fit:contain;display:block;background:#fff;padding:4px}
 #drop{border:1.5px dashed rgba(255,255,255,.6);border-radius:8px;padding:6px 12px;display:flex;align-items:center;gap:10px;font-size:13px;transition:.15s}
 #drop.nad{background:rgba(255,255,255,.18);border-color:#fff}
 #drop label{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.5);border-radius:6px;padding:3px 10px;cursor:pointer}
@@ -182,6 +182,8 @@ pre.raport.brk{break-after:page;page-break-after:always}
 .rej-tabela input{font:12px/1.2 "Consolas",monospace;width:100%;border:1px solid transparent;background:transparent;border-radius:4px;padding:2px 3px}
 .rej-tabela input:hover{border-color:var(--linia)}
 .rej-tabela input:focus{border-color:var(--ziel);background:#fff}
+.rej-tabela tbody tr:nth-child(even) td{background:rgba(127,140,160,.07)}
+.rej-tabela tbody tr.rej-aktywny td{background:rgba(45,212,167,.20)!important;box-shadow:inset 2px 0 0 var(--ziel)}
 .rej-tabela tr.wsp td{background:#fafcf9}
 .dz-cell{white-space:normal}
 .dz-chip{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--linia);border-radius:6px;padding:1px 3px;margin:1px 3px 1px 0;background:#fff}
@@ -199,7 +201,17 @@ th:hover .rsz::after{opacity:1;background:var(--ziel);width:3px}
 .rej-tabela tr.grp-end td{border-bottom:2px solid var(--ziel-c)}
 td.akcje{white-space:nowrap}
 td.akcje button{margin-left:2px}
+.rej-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.rej-panel{margin-top:12px;border:1px solid var(--linia);border-radius:10px;padding:10px;background:rgba(127,140,160,.06)}
+.rej-panel h3{margin:0 0 8px;font-size:13px;color:var(--ziel)}
+.rej-panel-grid{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.rej-panel .pole>span{font-size:11px}
 input[type=date]{font:inherit}
+@media (max-width:980px){
+ .rej-toolbar{align-items:stretch}
+ .rej-toolbar .filtr{min-width:0;width:100%}
+ .rej-toolbar .sortlab{justify-content:space-between;width:100%}
+}
 @media print{
  @page{margin:8mm 4mm}
  header.top,aside,.zakladki,.no-print,#btn-excel,#btn-zapisz,.raport-lista{display:none!important}
@@ -240,12 +252,12 @@ body::before{
 /* ---------- topbar ---------- */
 header.top{background:var(--panel);backdrop-filter:blur(14px);color:var(--tekst);
   border-bottom:1px solid var(--linia);box-shadow:none;padding:11px 20px;gap:14px}
-header.top h1{font-family:"Segoe UI Variable Display","Segoe UI",sans-serif;font-size:18px;gap:10px;color:var(--tekst)}
-header.top h1 .logo{width:40px;height:40px;border-radius:13px;display:flex;align-items:center;justify-content:center;
-  font-size:21px;background:var(--accent-grad);box-shadow:0 6px 18px rgba(45,212,167,.35)}
+header.top h1{font-family:"Segoe UI Variable Display","Segoe UI",sans-serif;font-size:18px;gap:10px;color:var(--tekst);line-height:1.15}
+header.top h1 .logo{width:42px;height:42px;border-radius:13px;display:block;object-fit:contain;background:#fff;padding:4px;
+  box-shadow:0 6px 18px rgba(45,212,167,.35)}
 #app-name{font-weight:800;letter-spacing:.2px;
   background:linear-gradient(90deg,var(--ziel),var(--accent));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-.app-sub{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.3px;margin-left:2px}
+.app-sub{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.3px;margin-left:2px;white-space:nowrap}
 #drop{border:1.5px dashed var(--linia);border-radius:12px;color:var(--muted)}
 #drop.nad{background:var(--ziel-l);border-color:var(--ziel)}
 #drop label{background:rgba(127,140,160,.10);border:1px solid var(--linia);border-radius:9px;color:var(--tekst);padding:4px 11px}
@@ -319,10 +331,42 @@ pre.raport{color:#0b0f14}
 
 </style>
 </style>
+<style id="MIETEK_MANUAL_FIX_V1">#app-name{background:none!important;color:var(--tekst,#163b2a)!important;-webkit-text-fill-color:currentColor!important;background-clip:initial!important;-webkit-background-clip:initial!important}#mietek-import-info{font-size:12px;overflow-wrap:anywhere;max-width:100%}</style>
+<style>
+/* MIETEK_LAYOUT_FIX_V2 */
+.wydruki-layout{display:grid!important;grid-template-columns:230px minmax(0,1fr);gap:14px;align-items:start}
+.raport-lista{min-width:0!important;max-width:none!important;width:100%}
+.wydruki-right{min-width:0;display:flex;flex-direction:column;gap:10px}
+.ustawienia-strony{margin-top:0!important;padding:10px!important}
+.ustawienia-strony .rej-panel-grid{grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px}
+.ustawienia-strony .przel{margin-top:8px}
+.raport-podglad{width:100%;min-width:0}
+.raport-scroll{box-sizing:border-box}
+#ramka-wydruk{display:block;min-height:70vh!important}
+.rej-tabela{font-size:13px}
+.rej-tabela th{padding:10px 8px!important;position:sticky;top:0;z-index:2;background:var(--panel);color:var(--tekst);border-bottom:2px solid var(--ziel)}
+.rej-tabela td{padding:7px 6px!important;vertical-align:top;border-bottom:1px solid var(--linia)}
+.rej-tabela input{font:13px/1.4 "Segoe UI",sans-serif!important;min-height:30px;box-sizing:border-box;border:1px solid var(--linia)!important;background:var(--panel)!important;color:var(--tekst)!important;padding:4px 5px!important}
+.rej-tabela input:focus{outline:2px solid var(--ziel);outline-offset:0}
+.rej-tabela td.wask button{white-space:nowrap;padding:5px 7px!important;min-width:50px}
+.rej-tabela .dz-chip{padding:5px;margin:3px;background:var(--panel);border:1px solid var(--linia);gap:4px}
+.rej-tabela .dz-chip input{min-height:27px;font-size:12px!important}
+.rej-tabela tr.grp-start td{border-top:2px solid var(--linia)}
+.rej-tabela tr.rej-aktywny td{background:var(--ziel-l)!important}
+.rej-panel .pole input{min-height:32px;font-size:13px}
+@media(max-width:850px){.wydruki-layout{grid-template-columns:160px minmax(0,1fr)}.ustawienia-strony .rej-panel-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.wydruki-layout{grid-template-columns:minmax(0,1fr)}.raport-lista{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media print{.wydruki-layout,.wydruki-right{display:block!important}}
+</style>
+<style>/* MIETEK_SAVE_FIX_V3 */
+.rej-tabela td.akcje{box-sizing:border-box;white-space:normal!important;text-align:center;overflow:visible;padding:7px 6px!important}
+.rej-tabela td.akcje button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:32px;min-height:30px;max-width:100%;margin:0!important;padding:4px 6px!important;line-height:1}
+.rej-tabela th:last-child{min-width:76px;white-space:nowrap}
+</style>
 </head>
 <body data-zakl="taksacja">
 <header class="top">
-  <h1><span class="logo">🌲</span> <span id="app-name">MIETEK v2</span><span class="app-sub">by FORESTLY</span></h1>
+  <h1><img class="logo" src="../docs/images/forestly-logo.png" alt="Logo FORESTLY"> <span id="app-name">MIETEK v2</span><span class="app-sub">by FORESTLY</span></h1>
   <div id="drop">
     <span>Przeciągnij folder MIETKA (DBF) tutaj</span>
     <label for="load-input">albo wybierz pliki</label>
@@ -354,6 +398,7 @@ pre.raport{color:#0b0f14}
 
 <datalist id="dl-gat"></datalist>
 
+<script src="./mietek-utils.js"></script>
 <script>
 /* =========================================================================
    MIETEK — rdzeń (działa w Node i w przeglądarce)
@@ -697,14 +742,15 @@ pre.raport{color:#0b0f14}
 (function () {
   "use strict";
   var C = window.MietekCore;
+  var U = window.MietekUtils || {};
   var DICT = window.MIETEK_DICT || {};
-  var DEMO = window.MIETEK_DEMO || null;
+  var DEMO = null;
 
   /* ------------------------------------------------------------ stan ---- */
   var S = {
     obreby: [], aktywny: null, plikO: null, wybrane: null,
     brudne: {},          // typ pliku ("O","R","D","WSIE") -> true
-    dict: {}, filtr: "", numery: {}, raport: "optax", kolW: {}
+    dict: {}, filtr: "", numery: {}, raport: "optax", kolW: {}, rejAkt: "", print: null
   };
   var PLIKI = ["W", "D", "O", "R", "WSIE"];
 
@@ -755,7 +801,11 @@ pre.raport{color:#0b0f14}
   function init() {
     wczytajSlownikiGlobalne();
     wypelnijDatalisty();
-    if (DEMO) wczytajDemo();
+    S.print = (U.defaultPrintSettings ? U.defaultPrintSettings(S.raport) : { format: "A4", orientation: "landscape", margins: { top: 8, right: 6, bottom: 8, left: 6 } });
+    try {
+      var sp = localStorage.getItem("mietek_print");
+      if (sp && U.sanitizePrintSettings) S.print = U.sanitizePrintSettings(JSON.parse(sp), S.raport);
+    } catch (e) { }
     podepnijZdarzenia();
     odswiezWszystko();
   }
@@ -802,27 +852,34 @@ pre.raport{color:#0b0f14}
 
   /* ----------------------------------------------- wczytywanie plików -- */
   function wczytajPliki(fileList) {
-    var files = Array.prototype.slice.call(fileList);
-    var grupy = {};   // nazwa folderu -> pliki
-    var lstFiles = [];
-    files.forEach(function (f) {
-      var nm = (f.name || "").toUpperCase();
-      var dir = (f.webkitRelativePath || f.name || "").split("/").slice(0, -1).join("/") || "(wczytane)";
-      if (/\.LST$/i.test(nm)) { lstFiles.push(f); return; }
-      if (!/\.DBF$/i.test(nm)) return;
-      (grupy[dir] = grupy[dir] || []).push(f);
+    var files = Array.prototype.slice.call(fileList || []);
+    var grouped = U.groupImportFiles ? U.groupImportFiles(files, PLIKI) : { sets: [], lstFiles: [], dbfCount: 0, sameNameGroups: [] };
+    var sets = grouped.sets || [];
+    var lstFiles = grouped.lstFiles || [];
+    if (!sets.length) {
+      var hint = grouped.dbfCount ? "Nie udało się dopasować plików do zestawów W/D/O/R/WSIE." : "Brak plików DBF w wybranej lokalizacji (także w podfolderach).";
+      alert(hint + "\nWskaż folder MIETKA albo wybierz pojedyncze pliki DBF/LST.");
+      return;
+    }
+    var ranked = sets.slice().sort(function(a,b){
+      var ca = PLIKI.filter(function(t){return !!a.pliki[t];}).length;
+      var cb = PLIKI.filter(function(t){return !!b.pliki[t];}).length;
+      if(ca!==cb)return cb-ca;
+      return a.folder < b.folder ? -1 : a.folder > b.folder ? 1 : 0;
     });
+    var chosenSets = [ranked[0]];
+    var selected = ranked[0];
+    var missing = PLIKI.filter(function(t){return !selected.pliki[t];});
+    var info = document.getElementById('mietek-import-info');
+    if(!info){info=document.createElement('div');info.id='mietek-import-info';info.className='no-print';document.querySelector('header.top').appendChild(info);}
+    info.textContent='Wczytany zestaw: '+selected.folder+(missing.length?' — brak: '+missing.join(', '):' — W, D, O, R, WSIE');
 
     var obreby = [];
     var czytaj = [];
-    Object.keys(grupy).forEach(function (dir) {
-      var g = grupy[dir];
-      var obr = { id: "o" + obreby.length, nazwa: dir.split("/").pop() || dir, folder: dir, pliki: {} };
-      // czy to obręb z plikami W/D/O/R? rozpoznaj po nazwie
-      g.forEach(function (f) {
-        var nm = f.name.toUpperCase().replace(/\.DBF$/, "");
-        var typ = nm.startsWith("WSIE") ? "WSIE" : nm.charAt(0);
-        if (PLIKI.indexOf(typ) < 0) typ = nm.charAt(0);
+    chosenSets.forEach(function (set, setIdx) {
+      var obr = { id: "o" + setIdx, nazwa: set.name, folder: set.folder, pliki: {} };
+      Object.keys(set.pliki).forEach(function (typ) {
+        var f = set.pliki[typ];
         czytaj.push(new Promise(function (res) {
           f.arrayBuffer().then(function (buf) {
             try {
@@ -833,6 +890,9 @@ pre.raport{color:#0b0f14}
           });
         }));
       });
+      if (set.duplicates && set.duplicates.length) {
+        alert("W folderze " + set.folder + " znaleziono kilka plików dla typu: " + set.duplicates.join(", ") + ". Użyto pierwszego znalezionego pliku.");
+      }
       obreby.push(obr);
     });
 
@@ -859,6 +919,7 @@ pre.raport{color:#0b0f14}
       if (!obreby.length) { alert("Nie rozpoznano plików DBF. Wskaż folder obrębu (np. WOL.001) albo pliki W/D/O/R/WSIE."); return; }
       obreby.forEach(function (o) { o.pliki.oryginal = o.pliki.oryginal; });
       S.obreby = obreby; S.aktywny = obreby[0]; S.brudne = {};
+      S.rejAkt = "";
       wczytajSlownikiGlobalne();
       wybierzPierwszeWydz();
       odswiezWszystko();
@@ -1684,10 +1745,12 @@ pre.raport{color:#0b0f14}
 
   /* ================================================== WIDOK: REJESTR == */
   /* Jedna wspólna tabela: właściciel (W) + jego działki (D) w tym samym wierszu. */
-  var KOL_DEF = { rejestr: [62, 190, 34, 54, 200, 300, 38] };
+  var KOL_DEF = { rejestr: [62, 190, 68, 54, 200, 300, 38] };
   function kolSzer() {
     if (!S.kolW) S.kolW = {};
     if (!S.kolW.rejestr) S.kolW.rejestr = KOL_DEF.rejestr.slice();
+    if (!S.rejWidthV2) { if (S.kolW.rejestr[2] < 68) S.kolW.rejestr[2] = 68; S.rejWidthV2 = true; }
+    if (S.kolW.rejestr[6] < 76) S.kolW.rejestr[6] = 76;
     return S.kolW.rejestr;
   }
   function colgroupRej() {
@@ -1695,7 +1758,7 @@ pre.raport{color:#0b0f14}
     return "<colgroup>" + w.map(function (x) { return '<col style="width:' + x + 'px">'; }).join("") + "</colgroup>";
   }
   function naglowekRej() {
-    var t = ["Nr rej.", "Nazwisko i imię", "+wsp", "Udział", "Adres", "Działki (nr / oddz. / pododdz. / pow.)", ""];
+    var t = ["Nr rej.", "Nazwisko i imię", "+wsp", "Udział", "Adres", "Działki (nr / oddz. / pododdz. / pow.)", "Usuń"];
     return "<thead><tr>" + t.map(function (x, i) {
       return "<th" + (i === 2 ? ' class="wask"' : "") + ">" + esc(x) + (i < t.length - 1 ? '<span class="rsz" title="przeciągnij, aby zmienić szerokość"></span>' : "") + "</th>";
     }).join("") + "</tr></thead>";
@@ -1750,10 +1813,11 @@ pre.raport{color:#0b0f14}
     var opcje = [["rej", "Rejestr (wg nazwiska)"], ["nr-asc", "Nr rej. rosnąco"], ["nr-desc", "Nr rej. malejąco"], ["nazw-asc", "Nazwisko A→Z"], ["nazw-desc", "Nazwisko Z→A"]];
     var h = [];
     h.push('<div class="karta"><div class="karta-naglowek"><h2>Rejestr — właściciele i działki</h2>' +
-      '<div class="przel"><input id="f-rejestr" class="filtr" placeholder="filtruj…" value="' + esc(S.filtr) + '">' +
+      '<div class="rej-toolbar"><input id="f-rejestr" class="filtr" placeholder="filtruj nr rej., nazwisko, adres, nr działki…" value="' + esc(S.filtr) + '">' +
       '<label class="sortlab">Sortuj <select id="sort-rej">' +
       opcje.map(function (o) { return '<option value="' + o[0] + '"' + (sort === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") +
       '</select></label><button class="min akcja" id="btn-dodaj-poz">+ dodaj pozycję</button></div></div>');
+    if (!S.rejAkt && kolejn.length) S.rejAkt = kolejn[0];
     var total = kolSzer().reduce(function (a, b) { return a + b; }, 0);
     h.push('<div class="tabela-wrap"><table class="tabela rej-tabela" style="width:' + total + 'px">' + colgroupRej() + naglowekRej() + "<tbody>");
     var f = (S.filtr || "").toLowerCase();
@@ -1766,8 +1830,8 @@ pre.raport{color:#0b0f14}
       if (!wl.length) wl = [{ NRREJ: nr }];
       wl.forEach(function (r, i) {
         var wi = W.indexOf(r);
-        var cls = "rej-row grp" + (i === 0 ? " grp-start" : "") + (i === wl.length - 1 ? " grp-end" : "") + (i > 0 ? " wsp" : "");
-        h.push('<tr class="' + cls + '">' +
+        var cls = "rej-row grp" + (i === 0 ? " grp-start" : "") + (i === wl.length - 1 ? " grp-end" : "") + (i > 0 ? " wsp" : "") + (S.rejAkt === nr ? " rej-aktywny" : "");
+        h.push('<tr class="' + cls + '" data-rejnr="' + esc(nr) + '">' +
           '<td><input data-w="' + wi + '" data-p="NRREJ" value="' + esc(r.NRREJ) + '" title="nr rejestru"></td>' +
           '<td><input data-w="' + wi + '" data-p="NAZWISKO" value="' + esc(r.NAZWISKO) + '" placeholder="nazwisko i imię" title="' + esc(r.NAZWISKO) + '"></td>' +
           '<td class="wask"><button class="min" data-waddco="' + wi + '" title="dodaj współwłaściciela (ten sam nr rej.)">+wsp</button></td>' +
@@ -1779,8 +1843,33 @@ pre.raport{color:#0b0f14}
       });
     });
     if (!wierszy) h.push('<tr><td colspan="7" class="pusto-mini">Brak pozycji.</td></tr>');
-    h.push("</tbody></table></div></div>");
+    h.push("</tbody></table></div>");
+    h.push(panelRejestru(W, D));
+    h.push("</div>");
     return h.join("");
+  }
+
+  function panelRejestru(W, D) {
+    var nr = S.rejAkt || "";
+    var wl = nr ? W.filter(function (r) { return r.NRREJ === nr; }) : [];
+    var dz = nr ? D.filter(function (r) { return r.NRREJ === nr; }) : [];
+    if (!nr || (!wl.length && !dz.length)) return '<div class="rej-panel"><h3>Panel rekordu</h3><div class="pusto-mini">Kliknij wiersz rejestru, aby edytować wybrany rekord w czytelnym formularzu.</div></div>';
+    var w0 = wl[0] || { NRREJ: nr, NAZWISKO: "", IMIE: "", ADRES: "" };
+    var wi = W.indexOf(w0);
+    var d0 = dz[0] || { NR_DZIAL: "", ODDZIAL: "", PODODDZ: "", POW: "" };
+    var di = D.indexOf(d0);
+    function aw(p) { return wi >= 0 ? (' data-w="' + wi + '" data-p="' + p + '"') : " disabled"; }
+    function ad(p) { return di >= 0 ? (' data-d="' + di + '" data-p="' + p + '"') : " disabled"; }
+    return '<div class="rej-panel"><h3>Panel rekordu: nr rej. ' + esc(nr) + '</h3><div class="rej-panel-grid">' +
+      '<label class="pole"><span>Nr rejestru</span><input' + aw("NRREJ") + ' value="' + esc(w0.NRREJ) + '"></label>' +
+      '<label class="pole"><span>Nazwisko i imię</span><input' + aw("NAZWISKO") + ' value="' + esc(w0.NAZWISKO) + '"></label>' +
+      '<label class="pole"><span>Udział</span><input' + aw("IMIE") + ' value="' + esc(w0.IMIE) + '"></label>' +
+      '<label class="pole szer"><span>Adres</span><input' + aw("ADRES") + ' value="' + esc(w0.ADRES) + '"></label>' +
+      '<label class="pole"><span>Nr działki</span><input' + ad("NR_DZIAL") + ' value="' + esc(d0.NR_DZIAL || "") + '"></label>' +
+      '<label class="pole"><span>Oddział</span><input' + ad("ODDZIAL") + ' value="' + esc(d0.ODDZIAL || "") + '"></label>' +
+      '<label class="pole"><span>Pododdział</span><input' + ad("PODODDZ") + ' value="' + esc(d0.PODODDZ || "") + '"></label>' +
+      '<label class="pole"><span>Powierzchnia [ha]</span><input' + ad("POW") + ' value="' + esc(d0.POW || "") + '"></label>' +
+      '</div><div class="mini-info">Współwłaściciele: ' + wl.length + ' · działki: ' + dz.length + '</div></div>';
   }
 
   /* ---------------------------------- regulacja szerokości kolumn ---- */
@@ -1828,13 +1917,15 @@ pre.raport{color:#0b0f14}
     box.style.setProperty("--fs-screen", fsS.toFixed(2) + "px");
     box.style.setProperty("--fs-print", fsP.toFixed(2) + "px");
   }
-  function poWidoku() { dopasujPre(); }
+  function poWidoku() {
+    dopasujPre();
+    if (document.body.dataset.zakl === "wydruk") { ulozPanelWydruku(); odswiezPodgladWydruku(); }
+  }
 
   /* ------------------------------------------------ sortowanie rejestru */
   document.addEventListener("change", function (e) {
     if (e.target && e.target.id === "sort-rej") { S.sortRej = e.target.value; odswiezWidok(); }
   });
-  function poWidoku() { dopasujPre(); }
 
   /* ------------------------------------------------- daty (YYYYMMDD) -- */
   function isoZDbf(v) { v = String(v || "").replace(/[^0-9]/g, ""); return v.length === 8 ? v.slice(0, 4) + "-" + v.slice(4, 6) + "-" + v.slice(6, 8) : ""; }
@@ -1869,39 +1960,104 @@ pre.raport{color:#0b0f14}
   }
 
   /* ==================================================== WIDOK: WYDRUK == */
-  function widokWydruk() {
+
+  function zapiszProfilWydruku() {
+    try { localStorage.setItem("mietek_print_report_" + (S.raport || "optax"), JSON.stringify(S.print)); } catch(e) {}
+  }
+  function wczytajProfilWydruku(id) {
+    var raw = null;
+    try { raw = JSON.parse(localStorage.getItem("mietek_print_report_" + id) || "null"); } catch(e) {}
+    // Migrate the existing global preferences only to the initial report.
+    if (!raw && id === "optax") {
+      try { raw = JSON.parse(localStorage.getItem("mietek_print") || "null"); } catch(e) {}
+    }
+    S.print = U.sanitizePrintSettings(raw || U.defaultPrintSettings(id), id);
+    S.printProfileId = id;
+  }
+  function ulozPanelWydruku() {
+    var layout = document.querySelector('.wydruki-layout');
+    if (!layout) return;
+    var list = layout.querySelector('.raport-lista');
+    var preview = layout.querySelector('.raport-podglad');
+    var panel = list && list.querySelector('.rej-panel');
+    if (!panel || !preview) return;
+    var right = document.createElement('div');
+    right.className='wydruki-right';
+    layout.appendChild(right);
+    panel.classList.add('ustawienia-strony','no-print');
+    right.appendChild(panel);
+    right.appendChild(preview);
+  }
+
+  function ustawieniaWydruku() {
+    if (S.printProfileId !== (S.raport || "optax")) wczytajProfilWydruku(S.raport || "optax");
+    S.print = (U.sanitizePrintSettings ? U.sanitizePrintSettings(S.print, S.raport) : S.print);
+    return S.print;
+  }
+  function dokumentWydrukuObj() {
     var r = S.raport || "optax";
     var rp = raport(r);
-    var tekst = generujRaport(r);
-    var lines = tekst.split("\n");
-    var maxLen = 0;
-    lines.forEach(function (l) { if (l.length > maxLen) maxLen = l.length; });
-    // podział na strony — każdy nagłówek "AGENCJA ..." zaczyna nową stronę
-    var strony = [], cur = [];
-    lines.forEach(function (l) {
-      if (l.indexOf("AGENCJA") === 0 && cur.length) { strony.push(cur); cur = []; }
-      cur.push(l);
-    });
-    if (cur.length) strony.push(cur);
-    var land = /^(optax|rejestr|tabklw|wskaz)$/.test(r);
+    var txt = generujRaport(r);
+    var obj = U.reportHtml ? U.reportHtml({
+      title: "MIETEK v2 — " + rp.nazwa,
+      fileName: rp.plik,
+      reportId: r,
+      text: txt,
+      settings: ustawieniaWydruku(),
+      objectName: obiektNazwa()
+    }) : { html: "", pages: 0, maxLen: 0, settings: ustawieniaWydruku() };
+    obj.rp = rp;
+    obj.tekst = txt;
+    return obj;
+  }
+  function odswiezPodgladWydruku() {
+    var fr = $("#ramka-wydruk");
+    if (!fr) return;
+    var obj = dokumentWydrukuObj();
+    fr.srcdoc = obj.html;
+    var info = $("#raport-info");
+    if (info) info.textContent = "Podgląd — " + obj.rp.plik + " · " + obj.pages + " str. · " + obj.maxLen + " znaków · " + (obiektNazwa() ? ("obiekt: " + obiektNazwa()) : "brak obiektu");
+  }
+  function otworzHtmlWydruku(printNow) {
+    var obj = dokumentWydrukuObj();
+    var blob = new Blob([obj.html], { type: "text/html;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var win = window.open(url, "_blank");
+    if (printNow && win) win.onload = function () { try { win.focus(); win.print(); } catch (e) { } };
+    setTimeout(function () { URL.revokeObjectURL(url); }, 120000);
+  }
+  function widokWydruk() {
+    var r = S.raport || "optax";
+    if (!S.print || S.print.orientation !== "portrait" && S.print.orientation !== "landscape") {
+      S.print = U.defaultPrintSettings ? U.defaultPrintSettings(r) : { format: "A4", orientation: "landscape", margins: { top: 8, right: 6, bottom: 8, left: 6 } };
+    }
+    var rp = raport(r);
+    var s = ustawieniaWydruku();
     var h = [];
-    h.push('<style id="page-orient">@page{size:A4 ' + (land ? "landscape" : "portrait") + ';margin:8mm 4mm}</style>');
     h.push('<div class="karta druk-karta"><div class="karta-naglowek no-print"><h2>Wydruki MIETKA</h2>' +
       '<div class="przel"><button class="min akcja" id="btn-zapisz-txt">💾 Zapisz .TXT (CP852)</button>' +
-      '<button class="min" onclick="window.print()">🖨 Drukuj / PDF (A4 poziomo)</button></div></div>');
+      '<button class="min" id="btn-export-html">💾 Eksport HTML</button>' +
+      '<button class="min" id="btn-open-html">🌐 Otwórz lokalny HTML</button>' +
+      '<button class="min" id="btn-drukuj-html">🖨 Drukuj / PDF</button></div></div>');
     h.push('<div class="wydruki-layout">');
     h.push('<div class="raport-lista no-print">');
     RAPORTY.forEach(function (x) {
       h.push('<button class="raport-btn' + (x.id === r ? " akt" : "") + '" data-raport="' + x.id + '">' + esc(x.nazwa) + "</button>");
     });
+    h.push('<div class="rej-panel" style="margin-top:8px"><h3>Ustawienia strony</h3>' +
+      '<div class="rej-panel-grid">' +
+      '<label class="pole"><span>Format</span><select id="print-format"><option' + (s.format === "A4" ? " selected" : "") + '>A4</option><option' + (s.format === "A3" ? " selected" : "") + '>A3</option><option' + (s.format === "A5" ? " selected" : "") + '>A5</option><option' + (s.format === "LETTER" ? " selected" : "") + '>LETTER</option></select></label>' +
+      '<label class="pole"><span>Orientacja</span><select id="print-orient"><option value="portrait"' + (s.orientation === "portrait" ? " selected" : "") + '>Pionowo</option><option value="landscape"' + (s.orientation === "landscape" ? " selected" : "") + '>Poziomo</option></select></label>' +
+      '<label class="pole"><span>Margines górny [mm]</span><input id="m-top" type="number" min="0" max="50" step="0.1" value="' + s.margins.top + '"></label>' +
+      '<label class="pole"><span>Margines prawy [mm]</span><input id="m-right" type="number" min="0" max="50" step="0.1" value="' + s.margins.right + '"></label>' +
+      '<label class="pole"><span>Margines dolny [mm]</span><input id="m-bottom" type="number" min="0" max="50" step="0.1" value="' + s.margins.bottom + '"></label>' +
+      '<label class="pole"><span>Margines lewy [mm]</span><input id="m-left" type="number" min="0" max="50" step="0.1" value="' + s.margins.left + '"></label>' +
+      '</div><div class="przel"><button class="min" id="btn-reset-print">Przywróć domyślne</button></div></div>');
     h.push("</div>");
     h.push('<div class="raport-podglad">');
-    h.push('<div class="raport-info no-print">Podgląd — <b>' + esc(rp.plik) + "</b> · " + strony.length + " str. · " + maxLen + " znaków · " +
-      (obiektNazwa() ? "obiekt: " + esc(obiektNazwa()) : "brak obiektu") + "</div>");
-    h.push('<div class="raport-scroll" data-maxlen="' + maxLen + '" data-orient="' + (land ? "landscape" : "portrait") + '">');
-    strony.forEach(function (pg, i) {
-      h.push('<pre class="raport strona' + (i < strony.length - 1 ? " brk" : "") + '">' + esc(pg.join("\n")) + "</pre>");
-    });
+    h.push('<div id="raport-info" class="raport-info no-print">Podgląd — ' + esc(rp.plik) + '</div>');
+    h.push('<div class="raport-scroll"><iframe id="ramka-wydruk" title="Podgląd wydruku" style="width:100%;min-height:75vh;border:0;background:#fff"></iframe></div>');
+    h.push('<div class="mini-info no-print">Jeśli podgląd w oknie natywnym (WebView2/pywebview) jest ograniczony, użyj „Otwórz lokalny HTML” i drukuj z przeglądarki.</div>');
     h.push("</div>");
     h.push("</div>");
     h.push("</div></div>");
@@ -1959,11 +2115,27 @@ pre.raport{color:#0b0f14}
   }
 
   function onInput(e) {
-    var t = e.target, d = t.dataset; if (!d) return;
+    var t = e.target, d = t.dataset;
     // filtr listy wydzieleń / rejestru
     if (t.id === "filtr-wydz") { S.filtr = t.value; odswiezListeWydz(); return; }
-    if (d.nr) { var rwN = rekordWydz(); if (rwN) { numerUstaw(rwN.rec, t.value); odswiezListeWydz(); } return; }
     if (t.id === "f-rejestr") { S.filtr = t.value; odswiezWidok(); var f = $("#f-rejestr"); if (f) { f.focus(); } return; }
+    if (t.id === "print-format" || t.id === "print-orient" || t.id === "m-top" || t.id === "m-right" || t.id === "m-bottom" || t.id === "m-left") {
+      S.print = U.sanitizePrintSettings ? U.sanitizePrintSettings({
+        format: $("#print-format") ? $("#print-format").value : "A4",
+        orientation: $("#print-orient") ? $("#print-orient").value : "portrait",
+        margins: {
+          top: $("#m-top") ? $("#m-top").value : 8,
+          right: $("#m-right") ? $("#m-right").value : 6,
+          bottom: $("#m-bottom") ? $("#m-bottom").value : 8,
+          left: $("#m-left") ? $("#m-left").value : 6
+        }
+      }, S.raport) : S.print;
+      zapiszProfilWydruku();
+      odswiezPodgladWydruku();
+      return;
+    }
+    if (!d) return;
+    if (d.nr) { var rwN = rekordWydz(); if (rwN) { numerUstaw(rwN.rec, t.value); odswiezListeWydz(); } return; }
     // pola wydzielenia (O)
     if (d.pole) { zapiszO(d.pole, t.value); return; }
     // pola wsi
@@ -1978,7 +2150,15 @@ pre.raport{color:#0b0f14}
     if (t.closest && t.closest(".kafelek")) { edytujKafelek(t); }
   }
   function onChange(e) {
-    var t = e.target, d = t.dataset; if (!d) return;
+    var t = e.target, d = t.dataset;
+    if (t.id === "print-format" || t.id === "print-orient" || t.id === "m-top" || t.id === "m-right" || t.id === "m-bottom" || t.id === "m-left") {
+      if ($("#m-top")) $("#m-top").value = S.print.margins.top;
+      if ($("#m-right")) $("#m-right").value = S.print.margins.right;
+      if ($("#m-bottom")) $("#m-bottom").value = S.print.margins.bottom;
+      if ($("#m-left")) $("#m-left").value = S.print.margins.left;
+      return;
+    }
+    if (!d) return;
     if (d.pole) { zapiszO(d.pole, t.value); odswiezWszystko(); return; }
     if (d.wsie) { zapiszWsie(d.wsie, t.dataset.data ? String(t.value||"").replace(/[^0-9]/g,"") : t.value); return; }
     if (d.w != null) { zapiszW(+d.w, d.p, t.value); return; }
@@ -1993,6 +2173,11 @@ pre.raport{color:#0b0f14}
   }
   function onClick(e) {
     var t = e.target, d = t.dataset; if (!d && !t.closest) return;
+    var rr = t.closest && t.closest("tr[data-rejnr]");
+    if (rr && document.body.dataset.zakl === "rejestr") {
+      S.rejAkt = rr.getAttribute("data-rejnr") || "";
+      if (!(t.tagName === "INPUT" || t.tagName === "BUTTON" || t.tagName === "SELECT")) { odswiezWidok(); }
+    }
     var zak = t.closest && t.closest(".zakladka");
     if (zak) { document.body.dataset.zakl = zak.dataset.z; odswiezWidok(); return; }
     if (d.dodaj) { var tl = pobierzKafelki(rekordWydz().rec); tl.push(nowyKafelek(d.dodaj)); commitOpis(); odswiezWidok(); return; }
@@ -2013,8 +2198,21 @@ pre.raport{color:#0b0f14}
     if (d.wdel != null) { usunW(+d.wdel); return; }
     if (t.id === "btn-dodaj-d") { dodajD(); return; }
     if (d.ddel != null) { usunD(+d.ddel); return; }
-    if (d.raport) { S.raport = d.raport; odswiezWidok(); return; }
+    if (d.raport) { zapiszProfilWydruku(); S.raport = d.raport; wczytajProfilWydruku(S.raport); odswiezWidok(); return; }
     if (t.id === "btn-zapisz-txt") { zapiszTxt(); return; }
+    if (t.id === "btn-export-html") {
+      var ex = dokumentWydrukuObj();
+      pobierz(new Blob([ex.html], { type: "text/html;charset=utf-8" }), ex.rp.plik.replace(/\.TXT$/i, ".html"));
+      return;
+    }
+    if (t.id === "btn-open-html") { otworzHtmlWydruku(false); return; }
+    if (t.id === "btn-drukuj-html") { otworzHtmlWydruku(true); return; }
+    if (t.id === "btn-reset-print") {
+      S.print = U.defaultPrintSettings ? U.defaultPrintSettings(S.raport) : { format: "A4", orientation: "landscape", margins: { top: 8, right: 6, bottom: 8, left: 6 } };
+      zapiszProfilWydruku();
+      odswiezWidok();
+      return;
+    }
     if (t.id === "btn-excel") { eksportExcel(); return; }
     if (t.id === "btn-zapisz") { zapiszDBF(); return; }
   }
@@ -2132,31 +2330,40 @@ pre.raport{color:#0b0f14}
   }
 
   /* ----------------------------------------------------- zapis DBF ----- */
-  function zapiszDBF() {
-    var o = S.aktywny; if (!o) return;
-    // kontrola: OP_TAX + OP_TAX1 mieszczą razem 490 znaków — ostrzeż, nie tnij po cichu
-    var przepl = [];
-    if (o.pliki.O) o.pliki.O.parsed.rekordy.forEach(function (rec) {
-      if (rec.__nadmiar > 0) przepl.push(rec.ODDZIAL + rec.PODODDZ + " (+" + rec.__nadmiar + " zn.)");
-    });
-    if (przepl.length && !confirm("Uwaga — opis nie mieści się w polach OP_TAX + OP_TAX1 (razem 490 znaków).\n\n" +
-        "Za długie wydzielenia: " + przepl.join(", ") + "\n\nNadmiar nie zostanie zapisany. Zapisać mimo to?")) return;
-    var plikiDoZapisu = S.brudne;
-    var zipEntries = [];
-    Object.keys(plikiDoZapisu).forEach(function (p) {
-      var f = o.pliki[p]; if (!f) return;
-      var nowe = C.dbfBuild(f.parsed, f.parsed.rekordy);
-      zipEntries.push({ name: f.nazwa, data: nowe });
-      var orig = f.oryginal;
-      if (orig) zipEntries.push({ name: f.nazwa.replace(/\.DBF$/i, "") + ".BAK", data: orig });
-    });
-    if (!zipEntries.length) { alert("Brak zmian do zapisu."); return; }
-    var blob = zbudujZip(zipEntries);
-    pobierz(blob, "MIETEK_zapis_" + o.nazwa.replace(/[\\/:*?"<>|]/g, "_") + ".zip");
-    // odśwież "oryginał" i wyczyść zmiany
-    Object.keys(plikiDoZapisu).forEach(function (p) { if (o.pliki[p]) o.pliki[p].oryginal = C.dbfBuild(o.pliki[p].parsed, o.pliki[p].parsed.rekordy); });
-    S.brudne = {}; odswiezPrzyciski();
+  function dbfBase64(bytes) {
+    var arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    var s = '';
+    for (var i=0;i<arr.length;i+=8192) s+=String.fromCharCode.apply(null,arr.subarray(i,i+8192));
+    return btoa(s);
   }
+  async function zapiszDBF() {
+    if (S.dbfSaving) return;
+    var o=S.aktywny;if(!o)return;
+    if (!window.pywebview || !window.pywebview.api || !window.pywebview.api.save_dbf) {
+      alert('Bezpośredni zapis wymaga okna programu. Uruchom uruchom.bat, nie sam index.html.'); return;
+    }
+    var przepl=[];
+    if(o.pliki.O)o.pliki.O.parsed.rekordy.forEach(function(rec){if(rec.__nadmiar>0)przepl.push(rec.ODDZIAL+rec.PODODDZ);});
+    if(przepl.length&&!confirm('Opisy przekraczają pojemność DBF: '+przepl.join(', ')+'. Nadmiar nie zostanie zapisany. Kontynuować?'))return;
+    var items=[],built={};
+    Object.keys(S.brudne).forEach(function(p){var f=o.pliki[p];if(!f)return;var b=C.dbfBuild(f.parsed,f.parsed.rekordy);built[p]=b;items.push({name:f.nazwa,original:dbfBase64(f.oryginal),data:dbfBase64(b)});});
+    if(!items.length){alert('Brak zmian do zapisu.');return;}
+    if(!confirm('Podmienić pliki DBF: '+items.map(function(x){return x.name;}).join(', ')+'? Przed podmianą powstaną kopie .bak. Przy pierwszym zapisie wskaż folder oryginalnych danych.'))return;
+    S.dbfSaving=true;
+    try{
+      var result=await window.pywebview.api.save_dbf(items);
+      if(!result.ok)throw new Error(result.error);
+      Object.keys(built).forEach(function(p){
+        o.pliki[p].oryginal=built[p];
+        // Clear only changes identical to the snapshot that was actually saved.
+        var now=C.dbfBuild(o.pliki[p].parsed,o.pliki[p].parsed.rekordy);
+        if(S.aktywny===o&&now.length===built[p].length&&now.every(function(v,i){return v===built[p][i];}))delete S.brudne[p];
+      });
+      odswiezPrzyciski();alert('Zapisano DBF i kopie .bak:\n'+result.files.join('\n'));
+    }catch(e){alert('Nie potwierdzono zapisu: '+e.message+'\nZmiany pozostają w programie.');}
+    finally{S.dbfSaving=false;}
+  }
+
   function pobierz(blob, name) {
     var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);

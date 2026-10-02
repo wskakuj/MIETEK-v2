@@ -33,13 +33,16 @@ def index_url():
 def run_webview():
     import webview  # pywebview
 
-    webview.create_window(
+    from db_save_api import DbSaveApi
+    api = DbSaveApi()
+    api.window = webview.create_window(
         APP_TITLE,
         index_url(),
         width=1560,
         height=980,
         min_size=(1080, 680),
         text_select=True,
+        js_api=api,
     )
     webview.start()
 
