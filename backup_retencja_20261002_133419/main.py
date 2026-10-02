@@ -30,31 +30,6 @@ def index_url():
     return "file:///" + index.replace("\\", "/")
 
 
-# MIETEK_BACKUP_RETENTION_V12
-
-def _cleanup_old_exe_backups():
-    import re
-    from pathlib import Path
-    if not getattr(sys, 'frozen', False):
-        return
-    exe = Path(sys.executable).resolve()
-    pattern = re.compile(re.escape(exe.name) + r'\.old_(\d+)$')
-    backups = []
-    try:
-        for path in exe.parent.iterdir():
-            match = pattern.fullmatch(path.name)
-            if match and not path.is_symlink() and path.is_file():
-                backups.append((int(match.group(1)), path))
-        backups.sort(key=lambda item: item[0], reverse=True)
-        for _, path in backups[1:]:
-            try:
-                path.unlink()
-            except OSError:
-                pass
-    except OSError:
-        pass
-
-
 def run_webview():
     import webview  # pywebview
 
@@ -69,13 +44,6 @@ def run_webview():
         text_select=True,
         js_api=api,
     )
-    # Clean up only after the new window has loaded; keep the latest old EXE.
-    def cleanup_after_load():
-        import threading
-        timer = threading.Timer(10.0, _cleanup_old_exe_backups)
-        timer.daemon = True
-        timer.start()
-    api._window.events.loaded += cleanup_after_load
     webview.start()
 
 
