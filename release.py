@@ -80,6 +80,21 @@ def git(*args, check=True, timeout=20, prompt=False, capture=True):
     return out
 
 
+def git_run(args, timeout=180, prompt=True):
+    """Uruchamia git i zwraca (kod_wyjscia, komunikat) — bez przerywania programu."""
+    env = dict(os.environ)
+    if not prompt:
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["GCM_INTERACTIVE"] = "Never"
+    try:
+        r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True,
+                           text=True, encoding="utf-8", errors="replace",
+                           timeout=timeout, env=env)
+    except subprocess.TimeoutExpired:
+        return 1, "przekroczono czas"
+    return r.returncode, ((r.stdout or "") + (r.stderr or "")).strip()
+
+
 # --------------------------------------------------------------------- wersja
 def _vt(v):
     """Wersja jako krotka liczb (do porównań)."""
@@ -267,6 +282,17 @@ def main():
     staged = git("diff", "--cached", "--name-only")
     if staged:
         git("commit", "-m", msg)
+    branch = git("rev-parse", "--abbrev-ref", "HEAD") or "main"
+    print(f"Synchronizuję z GitHubem (git pull --rebase origin {branch})…")
+    rc, out = git_run(["pull", "--rebase", "origin", branch], timeout=180)
+    if rc != 0:
+        print("\n✗ Nie udało się zsynchronizować z GitHubem (git pull --rebase).")
+        if out:
+            print(out)
+        print("\nNajczęściej: na GitHubie są zmiany, których nie ma lokalnie, albo konflikt.")
+        print(f"Napraw ręcznie w folderze repo:  git pull --rebase origin {branch}")
+        print("Potem uruchom release.py ponownie. Nic nie wysłano.")
+        sys.exit(1)
     print("Wysyłam zmiany na GitHub (push)…")
     git("push", prompt=True, capture=False, timeout=180)
     print(f"Taguję {ans} i wysyłam tag — Actions budują EXE…")
