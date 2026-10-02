@@ -2158,42 +2158,6 @@ pre.raport{color:#0b0f14}
     };
   }
 
-  // MIETEK_UPDATER_V6
-  var updaterBusyV6 = false;
-  async function sprawdzAktualizacjeV6(manual) {
-    if(updaterBusyV6)return;
-    if(!window.pywebview||!window.pywebview.api.updater_check){if(manual)alert('Sprawdzanie aktualizacji wymaga okna programu.');return;}
-    updaterBusyV6=true;
-    var button=document.getElementById('btn-update-v6');
-    if(button){button.disabled=true;button.textContent='Sprawdzanie…';}
-    try {
-      var result=await window.pywebview.api.updater_check();
-      if(!result.ok){if(manual)alert('Nie udało się sprawdzić aktualizacji: '+result.error);return;}
-      if(button)button.title='Wersja: '+result.current;
-      if(!result.available){if(manual)alert('Masz aktualną wersję: '+result.current);return;}
-      if(!result.frozen){if(manual)alert('Nowe wydanie: '+result.latest+'. Automatyczna instalacja działa dopiero w EXE.');return;}
-      if(Object.keys(S.brudne).length){alert('Dostępna wersja '+result.latest+'. Najpierw zapisz zmiany DBF, a potem kliknij Sprawdź aktualizacje.');return;}
-      if(!confirm('Dostępna wersja '+result.latest+' (obecna: '+result.current+').\n\n'+String(result.notes||'').slice(0,1800)+'\n\nPobrać i zainstalować? Program zostanie zamknięty i uruchomiony ponownie.'))return;
-      if(Object.keys(S.brudne).length){alert('Zapisz zmiany przed aktualizacją.');return;}
-      // Block editing during download and shutdown to prevent unsaved changes.
-      var cover=document.createElement('div');cover.id='updater-cover-v6';
-      cover.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.85);color:white;display:flex;align-items:center;justify-content:center;font:18px Segoe UI';
-      cover.textContent='Pobieranie i weryfikacja aktualizacji…';document.body.appendChild(cover);
-      var install=await window.pywebview.api.updater_install(result.latest);
-      if(!install.ok){cover.remove();alert(install.error);}
-      else cover.textContent='Uruchamianie instalatora…';
-    }catch(e){var cover=document.getElementById('updater-cover-v6');if(cover)cover.remove();if(manual)alert('Błąd aktualizacji: '+e.message);}
-    finally{updaterBusyV6=false;if(button){button.disabled=false;button.textContent='Sprawdź aktualizacje';}}
-  }
-  function przyciskAktualizacjiV6(){
-    if(document.getElementById('btn-update-v6'))return;
-    var top=document.querySelector('header.top');if(!top)return;
-    var b=document.createElement('button');b.id='btn-update-v6';b.className='min';b.textContent='Sprawdź aktualizacje';
-    b.onclick=function(){sprawdzAktualizacjeV6(true);};top.appendChild(b);
-  }
-  przyciskAktualizacjiV6();
-  window.addEventListener('pywebviewready',function(){setTimeout(function(){sprawdzAktualizacjeV6(false);},2000);},{once:true});
-
   function podepnijZdarzenia() {
     document.addEventListener("input", onInput);
     document.addEventListener("change", onChange);

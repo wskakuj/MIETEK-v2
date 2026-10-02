@@ -371,7 +371,6 @@ pre.raport{color:#0b0f14}
 #ramka-wydruk{height:80vh!important;min-height:650px!important;width:100%!important}
 @media(max-width:600px){.wydruki-layout{grid-template-columns:minmax(0,1fr)!important}}
 </style>
-<style id="MIETEK_STATUS_FIX_V5">#mietek-import-info{display:none!important}#status{font-weight:600;font-size:14px;overflow-wrap:anywhere}</style>
 </head>
 <body data-zakl="taksacja">
 <header class="top">
@@ -940,20 +939,16 @@ pre.raport{color:#0b0f14}
     odswiezStatus(); odswiezListeWydz(); odswiezWidok(); odswiezPrzyciski();
   }
   function odswiezStatus() {
-    var t = $("#status");
-    if (!t) return;
     var o = S.aktywny;
+    var t = $("#status");
     if (!o) { t.textContent = "Brak wczytanych danych."; return; }
-    var r = wsieRec();
-    var name = r && r.NAZWA ? String(r.NAZWA).trim() : "";
-    if (!name) {
-      var parts = String(o.folder || "").replace(/\\/g,"/").split("/").filter(Boolean);
-      if (parts.length > 1) name = parts[parts.length-2];
-      else name = parts[0] || o.nazwa || "";
-    }
-    t.textContent = name;
+    var czesci = PLIKI.filter(function (k) { return o.pliki[k]; }).map(function (k) {
+      return k + " (" + o.pliki[k].parsed.rekordy.length + ")";
+    });
+    t.innerHTML = "<b>" + esc(o.nazwa) + "</b> — " + czesci.join(", ") +
+      " · słowniki: " + (DICT.SGATUNA ? DICT.SGATUNA.length : 0) + " gat., " +
+      (DICT.SRODZPOW ? DICT.SRODZPOW.length : 0) + " rodz. pow.";
   }
-
   function odswiezPrzyciski() {
     var d = Object.keys(S.brudne);
     $("#btn-zapisz").disabled = !d.length;
@@ -2157,42 +2152,6 @@ pre.raport{color:#0b0f14}
       }catch(e){console.warn(e);}
     };
   }
-
-  // MIETEK_UPDATER_V6
-  var updaterBusyV6 = false;
-  async function sprawdzAktualizacjeV6(manual) {
-    if(updaterBusyV6)return;
-    if(!window.pywebview||!window.pywebview.api.updater_check){if(manual)alert('Sprawdzanie aktualizacji wymaga okna programu.');return;}
-    updaterBusyV6=true;
-    var button=document.getElementById('btn-update-v6');
-    if(button){button.disabled=true;button.textContent='Sprawdzanie…';}
-    try {
-      var result=await window.pywebview.api.updater_check();
-      if(!result.ok){if(manual)alert('Nie udało się sprawdzić aktualizacji: '+result.error);return;}
-      if(button)button.title='Wersja: '+result.current;
-      if(!result.available){if(manual)alert('Masz aktualną wersję: '+result.current);return;}
-      if(!result.frozen){if(manual)alert('Nowe wydanie: '+result.latest+'. Automatyczna instalacja działa dopiero w EXE.');return;}
-      if(Object.keys(S.brudne).length){alert('Dostępna wersja '+result.latest+'. Najpierw zapisz zmiany DBF, a potem kliknij Sprawdź aktualizacje.');return;}
-      if(!confirm('Dostępna wersja '+result.latest+' (obecna: '+result.current+').\n\n'+String(result.notes||'').slice(0,1800)+'\n\nPobrać i zainstalować? Program zostanie zamknięty i uruchomiony ponownie.'))return;
-      if(Object.keys(S.brudne).length){alert('Zapisz zmiany przed aktualizacją.');return;}
-      // Block editing during download and shutdown to prevent unsaved changes.
-      var cover=document.createElement('div');cover.id='updater-cover-v6';
-      cover.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.85);color:white;display:flex;align-items:center;justify-content:center;font:18px Segoe UI';
-      cover.textContent='Pobieranie i weryfikacja aktualizacji…';document.body.appendChild(cover);
-      var install=await window.pywebview.api.updater_install(result.latest);
-      if(!install.ok){cover.remove();alert(install.error);}
-      else cover.textContent='Uruchamianie instalatora…';
-    }catch(e){var cover=document.getElementById('updater-cover-v6');if(cover)cover.remove();if(manual)alert('Błąd aktualizacji: '+e.message);}
-    finally{updaterBusyV6=false;if(button){button.disabled=false;button.textContent='Sprawdź aktualizacje';}}
-  }
-  function przyciskAktualizacjiV6(){
-    if(document.getElementById('btn-update-v6'))return;
-    var top=document.querySelector('header.top');if(!top)return;
-    var b=document.createElement('button');b.id='btn-update-v6';b.className='min';b.textContent='Sprawdź aktualizacje';
-    b.onclick=function(){sprawdzAktualizacjeV6(true);};top.appendChild(b);
-  }
-  przyciskAktualizacjiV6();
-  window.addEventListener('pywebviewready',function(){setTimeout(function(){sprawdzAktualizacjeV6(false);},2000);},{once:true});
 
   function podepnijZdarzenia() {
     document.addEventListener("input", onInput);

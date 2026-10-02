@@ -130,13 +130,3 @@ class DbSaveApi:
                 return {'ok':False,'error':'Nie udało się otworzyć przeglądarki. Plik: '+p}
             return {'ok':True}
         except Exception as e:return {'ok':False,'error':str(e)}
-
-
-    def updater_check(self):
-        from mietek_updater import MietekUpdater
-        if not hasattr(self,'_updater'):self._updater=MietekUpdater(self.window)
-        return self._updater.check()
-
-    def updater_install(self,tag):
-        if not hasattr(self,'_updater'):return {'ok':False,'error':'Najpierw sprawdź aktualizacje.'}
-        return self._updater.install(tag)

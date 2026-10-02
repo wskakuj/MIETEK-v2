@@ -30,7 +30,7 @@ jobs:
 
     - name: Build "MIETEK v2 by FORESTLY.exe"
       shell: cmd
-      run: pyinstaller --noconfirm --onefile --windowed --icon "forestly.ico" --name "MIETEK v2 by FORESTLY" --add-data "webapp;webapp" --add-data "VERSION;." --add-data "docs;docs" --collect-all webview --collect-all clr_loader --hidden-import pythonnet --hidden-import clr app/main.py
+      run: pyinstaller --noconfirm --onefile --windowed --icon "forestly.ico" --name "MIETEK v2 by FORESTLY" --add-data "webapp;webapp" --add-data "docs;docs" --collect-all webview --collect-all clr_loader --hidden-import pythonnet --hidden-import clr app/main.py
 
     - name: Upload EXE jako artefakt (do pobrania z zakładki Actions)
       uses: actions/upload-artifact@v4
