@@ -32,9 +32,9 @@ na Twoim komputerze.
 | | Funkcja |
 |---|---|
 | **Edytor taksacji** | Opis `OP_TAX` w siatce 7 × 35 znaków, kafelki (drzewostan, zwarcie, podszyt…), podgląd zapisu i wydruku |
-| **Rejestr W/D** | Właściciele i działki w jednej tabeli, sortowanie (nr rej. / nazwisko), regulacja szerokości kolumn, współwłaściciele w ramkach |
+| **Rejestr W/D** | Czytelniejsza tabela + panel edycji wybranego rekordu, sortowanie/filtrowanie, aktywny wiersz, regulacja szerokości kolumn |
 | **Wydruki MIETKA** | Osiem wydruków 1:1 z oryginałem: OPTAX, REJESTR, ZEST, HALIZNY, TAB_KLW, WSKAZ, WSK_ZB, WYK_NEG — podgląd + zapis `.TXT` (CP852) |
-| **Druk** | OPTAX / REJESTR / TAB_KLW / WSKAZ poziomo, pozostałe pionowo; każdy nagłówek na nowej stronie |
+| **Druk HTML** | Jeden wspólny dokument dla podglądu/eksportu/druku, wybór formatu i orientacji oraz marginesów (mm), reset ustawień, eksport `.html` |
 | **Zapis do DBF** | ZIP z nadpisanymi `.DBF` oraz kopiami `.BAK` |
 | **Dane wsi** | Edycja rekordu `WSIE` z polami daty |
 
@@ -52,6 +52,15 @@ gh auth login
 ```
 
 **Budowa lokalna:** `build.bat` (wymaga Pythona 3.10+).
+
+## Co sprawdzić ręcznie po zmianach
+
+1. **Pusty start** — po uruchomieniu aplikacja startuje bez danych demo.
+2. **Import folderu** — wybierz folder nadrzędny z podfolderami i plikami `.dbf/.DBF`; aplikacja ma wykryć zestawy rekurencyjnie.
+3. **Kolizje nazw DBF** — gdy są 2 zestawy z tymi samymi nazwami plików, aplikacja pyta o wybór zestawu po ścieżce.
+4. **Rejestr (W/D)** — filtrowanie/sortowanie, aktywny wiersz, panel edycji rekordu, działanie w małym oknie i dla pustej tabeli.
+5. **Wydruki HTML** — zmiana marginesów/orientacji/formatu odświeża podgląd; eksport `.html` i druk korzystają z tych samych ustawień.
+6. **WebView2/pywebview** — jeśli podgląd/druk natywny jest ograniczony, użyj przycisku „Otwórz lokalny HTML” i drukuj z przeglądarki.
 
 ## Struktura
 
