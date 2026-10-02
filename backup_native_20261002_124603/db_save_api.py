@@ -16,8 +16,6 @@ class DbSaveApi:
             return {'ok': False, 'error': 'Zapis jest już w toku.'}
         try:
             return self._save(entries)
-        except PermissionError as e:
-            return {'ok': False, 'error': 'Odmowa dostępu Windows. Zamknij MIETKA/vDos i inne programy korzystające z DBF; sprawdź atrybut Tylko do odczytu oraz uprawnienia pliku. Nie wymuszono zapisu. Szczegóły: '+str(e)}
         except Exception as e:
             return {'ok': False, 'error': str(e)}
         finally:
@@ -27,6 +25,14 @@ class DbSaveApi:
         import webview
         if not entries:
             raise ValueError('Brak danych do zapisu.')
+        if self.root is None:
+            dialog = getattr(getattr(webview, 'FileDialog', None), 'FOLDER', None)
+            if dialog is None:
+                dialog = webview.FOLDER_DIALOG
+            selected = self.window.create_file_dialog(dialog)
+            if not selected:
+                return {'ok': False, 'error': 'Anulowano wybór folderu. Zmiany pozostają niezapisane.'}
+            self.root = Path(selected[0]).resolve()
         prepared = []
         seen = set()
         for entry in entries:
@@ -35,11 +41,15 @@ class DbSaveApi:
                 raise ValueError('Nieprawidłowa nazwa DBF.')
             original = base64.b64decode(entry['original'], validate=True)
             new = base64.b64decode(entry['data'], validate=True)
-            target = getattr(self, 'sources', {}).get(entry.get('token'))
-            if target is None:
-                raise ValueError('Wczytaj dane ponownie przez Wybierz folder lub Wybierz pliki w oknie programu. Przeciąganie i import przez przeglądarkę nie zachowują ścieżek zapisu.')
-            current = target.read_bytes()
-            matches = [(target,current)] if current == original else []
+            matches = []
+            for parent, dirs, files in os.walk(self.root, followlinks=False):
+                dirs[:] = [d for d in dirs if not (Path(parent)/d).is_symlink()]
+                for f in files:
+                    target = Path(parent)/f
+                    if f.casefold() == name.casefold() and not target.is_symlink():
+                        current = target.read_bytes()
+                        if current == original:
+                            matches.append((target, current))
             if len(matches) != 1:
                 self.root = None
                 raise ValueError('Plik '+name+': znaleziono '+str(len(matches))+' zgodnych oryginałów. Wybierz dokładny podfolder danych przy następnym zapisie. Nie podmieniono DBF.')
@@ -93,40 +103,3 @@ class DbSaveApi:
         finally:
             for _,tmp,_ in staged:
                 if tmp.exists():tmp.unlink()
-
-
-    def load_native(self, folder=True):
-        import webview, uuid
-        try:
-            kind = getattr(getattr(webview,'FileDialog',None), 'FOLDER' if folder else 'OPEN', None)
-            if kind is None: kind=webview.FOLDER_DIALOG if folder else webview.OPEN_DIALOG
-            chosen=self.window.create_file_dialog(kind,allow_multiple=not folder)
-            if not chosen:return {'ok':False,'cancelled':True}
-            paths=[]
-            if folder:
-                root=Path(chosen[0]).resolve()
-                for parent,dirs,files in os.walk(root,followlinks=False):
-                    dirs[:]=[d for d in dirs if not (Path(parent)/d).is_symlink()]
-                    paths.extend(Path(parent)/f for f in files if Path(f).suffix.lower() in ('.dbf','.lst') and not (Path(parent)/f).is_symlink())
-            else:
-                paths=[Path(p).resolve() for p in chosen if Path(p).suffix.lower() in ('.dbf','.lst')]
-                root=Path(os.path.commonpath([str(p.parent) for p in paths])) if paths else Path(chosen[0]).parent
-            self.sources={}
-            result=[]
-            for p in sorted(paths,key=lambda p:str(p).casefold()):
-                token=uuid.uuid4().hex;self.sources[token]=p
-                result.append({'name':p.name,'relative':root.name+'/'+p.relative_to(root).as_posix(),'token':token,'data':base64.b64encode(p.read_bytes()).decode('ascii')})
-            return {'ok':True,'files':result}
-        except Exception as e:return {'ok':False,'error':str(e)}
-
-    def open_report(self, html, print_now=False):
-        import webbrowser
-        try:
-            fd,p=tempfile.mkstemp(prefix='MIETEK-wydruk-',suffix='.html')
-            if print_now:
-                html=html.replace('</body>','<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},350);});</script></body>')
-            with os.fdopen(fd,'w',encoding='utf-8') as stream:stream.write(html)
-            if not webbrowser.open(Path(p).resolve().as_uri()):
-                return {'ok':False,'error':'Nie udało się otworzyć przeglądarki. Plik: '+p}
-            return {'ok':True}
-        except Exception as e:return {'ok':False,'error':str(e)}

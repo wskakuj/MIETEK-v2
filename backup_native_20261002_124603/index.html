@@ -363,14 +363,6 @@ pre.raport{color:#0b0f14}
 .rej-tabela td.akcje button{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:32px;min-height:30px;max-width:100%;margin:0!important;padding:4px 6px!important;line-height:1}
 .rej-tabela th:last-child{min-width:76px;white-space:nowrap}
 </style>
-<style>/* MIETEK_NATIVE_FIX_V4 */
-.wydruki-layout{grid-template-columns:190px minmax(0,1fr)!important}
-.druk-karta{max-width:none!important;width:100%;box-sizing:border-box}
-.raport-podglad,.wydruki-right{min-width:0;width:100%}
-.raport-scroll{padding:0!important;overflow:auto!important}
-#ramka-wydruk{height:80vh!important;min-height:650px!important;width:100%!important}
-@media(max-width:600px){.wydruki-layout{grid-template-columns:minmax(0,1fr)!important}}
-</style>
 </head>
 <body data-zakl="taksacja">
 <header class="top">
@@ -892,7 +884,7 @@ pre.raport{color:#0b0f14}
           f.arrayBuffer().then(function (buf) {
             try {
               var parsed = C.dbfParse(new Uint8Array(buf));
-              obr.pliki[typ] = { nazwa: f.name, parsed: parsed, oryginal: new Uint8Array(buf), sourceToken: f.mietekToken || null };
+              obr.pliki[typ] = { nazwa: f.name, parsed: parsed, oryginal: new Uint8Array(buf) };
             } catch (e) { }
             res();
           });
@@ -2022,22 +2014,18 @@ pre.raport{color:#0b0f14}
     var fr = $("#ramka-wydruk");
     if (!fr) return;
     var obj = dokumentWydrukuObj();
-    dopasujRamkeV4(); fr.srcdoc = obj.html;
+    fr.srcdoc = obj.html;
     var info = $("#raport-info");
     if (info) info.textContent = "Podgląd — " + obj.rp.plik + " · " + obj.pages + " str. · " + obj.maxLen + " znaków · " + (obiektNazwa() ? ("obiekt: " + obiektNazwa()) : "brak obiektu");
   }
-  async function otworzHtmlWydruku(printNow) {
-    var obj=dokumentWydrukuObj();
-    if(window.pywebview&&window.pywebview.api.open_report){
-      try{var result=await window.pywebview.api.open_report(obj.html,!!printNow);if(!result.ok)alert(result.error);}catch(e){alert('Błąd otwarcia wydruku: '+e.message);}
-      return;
-    }
-    var win=window.open('','_blank');
-    if(!win){alert('Przeglądarka zablokowała okno wydruku.');return;}
-    win.document.open();win.document.write(obj.html);win.document.close();
-    if(printNow)setTimeout(function(){win.focus();win.print();},500);
+  function otworzHtmlWydruku(printNow) {
+    var obj = dokumentWydrukuObj();
+    var blob = new Blob([obj.html], { type: "text/html;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var win = window.open(url, "_blank");
+    if (printNow && win) win.onload = function () { try { win.focus(); win.print(); } catch (e) { } };
+    setTimeout(function () { URL.revokeObjectURL(url); }, 120000);
   }
-
   function widokWydruk() {
     var r = S.raport || "optax";
     if (!S.print || S.print.orientation !== "portrait" && S.print.orientation !== "landscape") {
@@ -2115,44 +2103,6 @@ pre.raport{color:#0b0f14}
   }
 
   /* ================================================== ZDARZENIA ======= */
-  async function wczytajNatywnie(folder) {
-    try {
-      var result=await window.pywebview.api.load_native(folder);
-      if(!result.ok){if(!result.cancelled)alert(result.error);return;}
-      var files=result.files.map(function(x){
-        var raw=atob(x.data),bytes=new Uint8Array(raw.length);
-        for(var i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);
-        var file=new File([bytes],x.name);
-        Object.defineProperty(file,'webkitRelativePath',{value:x.relative});
-        file.mietekToken=x.token;return file;
-      });
-      wczytajPliki(files);
-    }catch(e){alert('Błąd importu: '+e.message);}
-  }
-  document.addEventListener('click',function(e){
-    var label=e.target.closest&&e.target.closest('label[for="load-input-dir"],label[for="load-input-files"]');
-    var input=e.target.id==='load-input-dir'||e.target.id==='load-input-files'?e.target:null;
-    var id=label?label.getAttribute('for'):input&&input.id;
-    if(id&&window.pywebview&&window.pywebview.api.load_native){
-      e.preventDefault();e.stopImmediatePropagation();wczytajNatywnie(id==='load-input-dir');
-    }
-  },true);
-  function dopasujRamkeV4() {
-    var fr=document.getElementById('ramka-wydruk');if(!fr)return;
-    fr.onload=function(){
-      try{
-        var doc=fr.contentDocument;
-        var page=doc.querySelector('.page');if(!page)return;
-        doc.documentElement.style.overflowX='hidden';
-        function fit(){var width=page.getBoundingClientRect().width;var scale=Math.min(1,Math.max(0.05,(fr.clientWidth-20)/width));doc.body.style.zoom=scale;}
-        // Measure with zoom reset to avoid feedback across resize events.
-        var doFit=function(){doc.body.style.zoom=1;fit();};
-        doFit();if(fr._mietekResize)fr._mietekResize.disconnect();
-        fr._mietekResize=new ResizeObserver(doFit);fr._mietekResize.observe(fr);
-      }catch(e){console.warn(e);}
-    };
-  }
-
   function podepnijZdarzenia() {
     document.addEventListener("input", onInput);
     document.addEventListener("change", onChange);
@@ -2396,9 +2346,9 @@ pre.raport{color:#0b0f14}
     if(o.pliki.O)o.pliki.O.parsed.rekordy.forEach(function(rec){if(rec.__nadmiar>0)przepl.push(rec.ODDZIAL+rec.PODODDZ);});
     if(przepl.length&&!confirm('Opisy przekraczają pojemność DBF: '+przepl.join(', ')+'. Nadmiar nie zostanie zapisany. Kontynuować?'))return;
     var items=[],built={};
-    Object.keys(S.brudne).forEach(function(p){var f=o.pliki[p];if(!f)return;var b=C.dbfBuild(f.parsed,f.parsed.rekordy);built[p]=b;items.push({name:f.nazwa,original:dbfBase64(f.oryginal),data:dbfBase64(b),token:f.sourceToken});});
+    Object.keys(S.brudne).forEach(function(p){var f=o.pliki[p];if(!f)return;var b=C.dbfBuild(f.parsed,f.parsed.rekordy);built[p]=b;items.push({name:f.nazwa,original:dbfBase64(f.oryginal),data:dbfBase64(b)});});
     if(!items.length){alert('Brak zmian do zapisu.');return;}
-    if(!confirm('Podmienić pliki DBF: '+items.map(function(x){return x.name;}).join(', ')+'? Przed podmianą powstaną kopie .bak. Zapis nastąpi w folderze, z którego wczytano pliki.'))return;
+    if(!confirm('Podmienić pliki DBF: '+items.map(function(x){return x.name;}).join(', ')+'? Przed podmianą powstaną kopie .bak. Przy pierwszym zapisie wskaż folder oryginalnych danych.'))return;
     S.dbfSaving=true;
     try{
       var result=await window.pywebview.api.save_dbf(items);
