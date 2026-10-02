@@ -35,7 +35,7 @@ def run_webview():
 
     from db_save_api import DbSaveApi
     api = DbSaveApi()
-    api._window = webview.create_window(
+    api.window = webview.create_window(
         APP_TITLE,
         index_url(),
         width=1560,

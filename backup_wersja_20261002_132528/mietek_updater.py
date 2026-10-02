@@ -97,12 +97,7 @@ $form.Add_Shown({
       if($clock.Elapsed.TotalSeconds -gt 60){throw 'Program nie zamknął się. Nie podmieniono EXE.'}
     }
     $label.Text='Instalowanie nowej wersji...';$form.Refresh()
-    # Wait for the PyInstaller parent and any transient file locks as well.
-    $deadline=[DateTime]::UtcNow.AddSeconds(30)
-    while($true){
-      try { Move-Item -LiteralPath $target -Destination $backup -ErrorAction Stop; break }
-      catch { if([DateTime]::UtcNow -ge $deadline){throw}; [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 300 }
-    }
+    Move-Item -LiteralPath $target -Destination $backup -ErrorAction Stop
     $renamed=$true
     Move-Item -LiteralPath $download -Destination $target -ErrorAction Stop
     $env:PYINSTALLER_RESET_ENVIRONMENT='1'

@@ -374,14 +374,13 @@ pre.raport{color:#0b0f14}
 </style>
 <style id="MIETEK_STATUS_FIX_V5">#mietek-import-info{display:none!important}#status{font-weight:600;font-size:14px;overflow-wrap:anywhere}</style>
 <style>.app-brand-v10{display:inline-flex;flex-direction:column;gap:2px;align-items:flex-start;line-height:1.25}.app-brand-v10 .app-sub{margin-left:0!important}#app-version-v10{font-size:11px;font-weight:500;color:var(--muted);white-space:nowrap}</style>
-<style id="MIETEK_EXPORT_FIX_V11">#native-files-v9{display:none!important}</style>
 </head>
 <body data-zakl="taksacja">
 <header class="top">
   <h1><img class="logo" src="../docs/images/forestly-logo.png" alt="Logo FORESTLY"> <span id="app-name">MIETEK v2</span><span class="app-sub">by FORESTLY</span></h1>
   <div id="drop">
     <span>Wczytaj dane MIETKA</span>
-    
+    <button type="button" class="min" id="native-files-v9">Wybierz pliki</button>
     <button type="button" class="min" id="native-folder-v9">Wybierz folder</button>
     <input id="load-input" type="file" multiple webkitdirectory directory accept=".dbf,.DBF,.lst,.LST" style="display:none">
   </div>
@@ -2495,21 +2494,10 @@ pre.raport{color:#0b0f14}
     finally{S.dbfSaving=false;}
   }
 
-  async function pobierz(blob, name) {
-    if(window.pywebview&&window.pywebview.api&&window.pywebview.api.save_export){
-      try{
-        var bytes=new Uint8Array(await blob.arrayBuffer());
-        var result=await window.pywebview.api.save_export(name,dbfBase64(bytes));
-        if(!result.ok&&!result.cancelled)alert('Nie udało się wyeksportować pliku: '+result.error);
-      }catch(e){alert('Błąd eksportu: '+e.message);}
-      return;
-    }
-    if(window.pywebview){alert('Eksport natywny nie jest gotowy. Poczekaj chwilę lub przebuduj EXE po zastosowaniu V11.');return;}
-    var a=document.createElement('a');var url=URL.createObjectURL(blob);
-    a.href=url;a.download=name;document.body.appendChild(a);a.click();
-    setTimeout(function(){URL.revokeObjectURL(url);a.remove();},1000);
+  function pobierz(blob, name) {
+    var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   }
-
 
   /* ----------------------------------------------- mini-ZIP (store) ---- */
   var CRC_TABLE = (function () { var t = []; for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; } return t; })();

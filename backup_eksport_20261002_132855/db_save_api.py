@@ -7,12 +7,12 @@ from pathlib import Path
 
 class DbSaveApi:
     def __init__(self):
-        self._window = None
-        self._root = None
-        self._lock = threading.Lock()
+        self.window = None
+        self.root = None
+        self.lock = threading.Lock()
 
     def save_dbf(self, entries):
-        if not self._lock.acquire(False):
+        if not self.lock.acquire(False):
             return {'ok': False, 'error': 'Zapis jest już w toku.'}
         try:
             return self._save(entries)
@@ -21,7 +21,7 @@ class DbSaveApi:
         except Exception as e:
             return {'ok': False, 'error': str(e)}
         finally:
-            self._lock.release()
+            self.lock.release()
 
     def _save(self, entries):
         import webview
@@ -35,13 +35,13 @@ class DbSaveApi:
                 raise ValueError('Nieprawidłowa nazwa DBF.')
             original = base64.b64decode(entry['original'], validate=True)
             new = base64.b64decode(entry['data'], validate=True)
-            target = getattr(self, '_sources', {}).get(entry.get('token'))
+            target = getattr(self, 'sources', {}).get(entry.get('token'))
             if target is None:
                 raise ValueError('Wczytaj dane ponownie przez Wybierz folder lub Wybierz pliki w oknie programu. Przeciąganie i import przez przeglądarkę nie zachowują ścieżek zapisu.')
             current = target.read_bytes()
             matches = [(target,current)] if current == original else []
             if len(matches) != 1:
-                self._root = None
+                self.root = None
                 raise ValueError('Plik '+name+': znaleziono '+str(len(matches))+' zgodnych oryginałów. Wybierz dokładny podfolder danych przy następnym zapisie. Nie podmieniono DBF.')
             target, current = matches[0]
             if target in seen:
@@ -101,7 +101,7 @@ class DbSaveApi:
             kind = getattr(getattr(webview,'FileDialog',None), 'FOLDER' if folder else 'OPEN', None)
             if kind is None: kind=webview.FOLDER_DIALOG if folder else webview.OPEN_DIALOG
             # MIETEK_DIALOG_MEMORY_V8
-            chosen=self._window.create_file_dialog(kind,directory=self._last_dialog_directory(folder),allow_multiple=not folder)
+            chosen=self.window.create_file_dialog(kind,directory=self._last_dialog_directory(folder),allow_multiple=not folder)
             if not chosen:return {'ok':False,'cancelled':True}
             paths=[]
             if folder:
@@ -112,10 +112,10 @@ class DbSaveApi:
             else:
                 paths=[Path(p).resolve() for p in chosen if Path(p).suffix.lower() in ('.dbf','.lst')]
                 root=Path(os.path.commonpath([str(p.parent) for p in paths])) if paths else Path(chosen[0]).parent
-            self._sources={}
+            self.sources={}
             result=[]
             for p in sorted(paths,key=lambda p:str(p).casefold()):
-                token=uuid.uuid4().hex;self._sources[token]=p
+                token=uuid.uuid4().hex;self.sources[token]=p
                 result.append({'name':p.name,'relative':root.name+'/'+p.relative_to(root).as_posix(),'token':token,'data':base64.b64encode(p.read_bytes()).decode('ascii')})
             self._remember_dialog_directory(chosen,folder)
             return {'ok':True,'files':result}
@@ -136,7 +136,7 @@ class DbSaveApi:
 
     def updater_check(self):
         from mietek_updater import MietekUpdater
-        if not hasattr(self,'_updater'):self._updater=MietekUpdater(self._window)
+        if not hasattr(self,'_updater'):self._updater=MietekUpdater(self.window)
         return self._updater.check()
 
     def updater_install(self,tag):
@@ -195,31 +195,3 @@ class DbSaveApi:
             return {'ok':True,'version':current_version()}
         except Exception as e:
             return {'ok':False,'version':None,'error':str(e)}
-
-
-    def save_export(self, name, data):
-        import webview
-        import base64, os, tempfile
-        from pathlib import Path
-        try:
-            name=Path(str(name).replace('\\','/')).name
-            suffix=Path(name).suffix.lower()
-            if suffix not in ('.xlsx','.html','.txt','.zip'):
-                raise ValueError('Nieobsługiwany format eksportu.')
-            content=base64.b64decode(data,validate=True)
-            dialog=getattr(getattr(webview,'FileDialog',None),'SAVE',None)
-            if dialog is None:dialog=webview.SAVE_DIALOG
-            selected=self._window.create_file_dialog(dialog,save_filename=name)
-            if not selected:return {'ok':False,'cancelled':True}
-            dest=Path(selected[0])
-            if not dest.suffix:dest=dest.with_suffix(suffix)
-            if dest.suffix.lower()!=suffix:raise ValueError('Wybierz plik z rozszerzeniem '+suffix+'.')
-            fd,tmp=tempfile.mkstemp(prefix='.mietek-export-',dir=dest.parent)
-            try:
-                with os.fdopen(fd,'wb') as stream:
-                    stream.write(content);stream.flush();os.fsync(stream.fileno())
-                os.replace(tmp,dest)
-            finally:
-                if os.path.exists(tmp):os.unlink(tmp)
-            return {'ok':True,'path':str(dest)}
-        except Exception as e:return {'ok':False,'error':str(e)}

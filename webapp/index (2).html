@@ -27,7 +27,7 @@ header.top h1 .logo{width:40px;height:40px;border-radius:11px;object-fit:contain
 #drop.nad{background:rgba(255,255,255,.18);border-color:#fff}
 #drop label{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.5);border-radius:6px;padding:3px 10px;cursor:pointer}
 #drop label:hover{background:rgba(255,255,255,.28)}
-#load-input{display:none}
+#load-input,#load-input-dir,#load-input-files{display:none}
 #status{flex:1;min-width:200px;font-size:12.5px;opacity:.95}
 #btn-zapisz{background:#fff;color:var(--ziel);border:0;border-radius:7px;padding:8px 16px;font-weight:650}
 #btn-zapisz:disabled{opacity:.5;cursor:default}
@@ -373,17 +373,16 @@ pre.raport{color:#0b0f14}
 @media(max-width:600px){.wydruki-layout{grid-template-columns:minmax(0,1fr)!important}}
 </style>
 <style id="MIETEK_STATUS_FIX_V5">#mietek-import-info{display:none!important}#status{font-weight:600;font-size:14px;overflow-wrap:anywhere}</style>
-<style>.app-brand-v10{display:inline-flex;flex-direction:column;gap:2px;align-items:flex-start;line-height:1.25}.app-brand-v10 .app-sub{margin-left:0!important}#app-version-v10{font-size:11px;font-weight:500;color:var(--muted);white-space:nowrap}</style>
-<style id="MIETEK_EXPORT_FIX_V11">#native-files-v9{display:none!important}</style>
 </head>
 <body data-zakl="taksacja">
 <header class="top">
   <h1><img class="logo" src="../docs/images/forestly-logo.png" alt="Logo FORESTLY"> <span id="app-name">MIETEK v2</span><span class="app-sub">by FORESTLY</span></h1>
   <div id="drop">
-    <span>Wczytaj dane MIETKA</span>
-    
-    <button type="button" class="min" id="native-folder-v9">Wybierz folder</button>
-    <input id="load-input" type="file" multiple webkitdirectory directory accept=".dbf,.DBF,.lst,.LST" style="display:none">
+    <span>Przeciągnij folder MIETKA (DBF) tutaj</span>
+    <label for="load-input-dir">Wybierz folder</label>
+    <label for="load-input-files">Wybierz pliki</label>
+    <input id="load-input-dir" type="file" multiple webkitdirectory directory accept=".dbf,.DBF,.lst,.LST">
+    <input id="load-input-files" type="file" multiple accept=".dbf,.DBF,.lst,.LST">
   </div>
   <div id="status"></div>
   <button id="btn-theme" title="Przełącz jasny / ciemny motyw">🌓 Motyw</button>
@@ -2124,18 +2123,6 @@ pre.raport{color:#0b0f14}
   }
 
   /* ================================================== ZDARZENIA ======= */
-  // MIETEK_IMPORT_BINDING_V9
-  document.addEventListener('click',function(e){
-    var button=e.target.closest&&e.target.closest('#native-files-v9,#native-folder-v9');
-    if(!button)return;
-    e.preventDefault();e.stopImmediatePropagation();
-    if(!window.pywebview||!window.pywebview.api||typeof window.pywebview.api.load_native!=='function'){
-      alert('Natywny import nie jest jeszcze gotowy. Poczekaj chwilę. Jeśli komunikat się powtarza, uruchom źródła przez uruchom.bat lub przebuduj EXE.');return;
-    }
-    if(Object.keys(S.brudne).length&&!confirm('Wczytanie nowych danych zastąpi bieżące dane i niezapisane zmiany. Kontynuować?'))return;
-    wczytajNatywnie(button.id==='native-folder-v9');
-  },true);
-
   async function wczytajNatywnie(folder) {
     try {
       var result=await window.pywebview.api.load_native(folder);
@@ -2185,7 +2172,7 @@ pre.raport{color:#0b0f14}
     try {
       var result=await window.pywebview.api.updater_check();
       if(!result.ok){if(manual)alert('Nie udało się sprawdzić aktualizacji: '+result.error);return;}
-      pokazWersjeV10(result.current); if(button)button.title='Wersja: '+result.current;
+      if(button)button.title='Wersja: '+result.current;
       if(!result.available){if(manual)alert('Masz aktualną wersję: '+result.current);return;}
       if(!result.frozen){if(manual)alert('Nowe wydanie: '+result.latest+'. Automatyczna instalacja działa dopiero w EXE.');return;}
       if(Object.keys(S.brudne).length){alert('Dostępna wersja '+result.latest+'. Najpierw zapisz zmiany DBF, a potem kliknij Sprawdź aktualizacje.');return;}
@@ -2208,41 +2195,20 @@ pre.raport{color:#0b0f14}
     b.onclick=function(){sprawdzAktualizacjeV6(true);};top.appendChild(b);
   }
   przyciskAktualizacjiV6();
-  // MIETEK_VERSION_START_V10
-  function pokazWersjeV10(version) {
-    var el=document.getElementById('app-version-v10');
-    if(!el){
-      var sub=document.querySelector('header.top .app-sub');if(!sub)return;
-      var column=document.createElement('span');column.className='app-brand-v10';
-      sub.parentNode.insertBefore(column,sub);column.appendChild(sub);
-      el=document.createElement('span');el.id='app-version-v10';column.appendChild(el);
-    }
-    el.textContent=version?'Wersja '+String(version).replace(/^v/i,''):'Wersja —';
-  }
-  var startAktualizacjiV10=false;
-  async function uruchomAktualizacjeV10(){
-    if(startAktualizacjiV10)return;
-    if(!window.pywebview||!window.pywebview.api||!window.pywebview.api.app_version)return;
-    startAktualizacjiV10=true;
-    try{var info=await window.pywebview.api.app_version();pokazWersjeV10(info.version);if(!info.ok){var el=document.getElementById('app-version-v10');if(el)el.title=info.error;}}catch(e){console.warn(e);}
-    setTimeout(function(){sprawdzAktualizacjeV6(false);},1200);
-  }
-  pokazWersjeV10('');
-  window.addEventListener('pywebviewready',uruchomAktualizacjeV10,{once:true});
-  uruchomAktualizacjeV10();
-  var oczekiwanieV10=0;
-  var timerV10=setInterval(function(){uruchomAktualizacjeV10();if(startAktualizacjiV10||++oczekiwanieV10>=40)clearInterval(timerV10);},250);
-
+  window.addEventListener('pywebviewready',function(){setTimeout(function(){sprawdzAktualizacjeV6(false);},2000);},{once:true});
 
   function podepnijZdarzenia() {
     document.addEventListener("input", onInput);
     document.addEventListener("change", onChange);
     document.addEventListener("click", onClick);
-    $("#load-input").addEventListener("change", function (e) { if (e.target.files.length) wczytajPliki(e.target.files); });
+    ["#load-input-dir", "#load-input-files"].forEach(function (sel) { var el = $(sel); if (el) el.addEventListener("change", function (e) { if (e.target.files.length) wczytajPliki(e.target.files); }); });
     var dz = $("#drop");
     ["dragenter", "dragover"].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add("nad"); }); });
     ["dragleave", "drop"].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove("nad"); }); });
-    dz.addEventListener("drop", function (e) { if (e.dataTransfer.files.length) wczytajPliki(e.dataTransfer.files); });
+    dz.addEventListener("drop", function (e) {
+      if (window.pywebview && window.pywebview.api && window.pywebview.api.load_native) { wczytajNatywnie(true); return; }
+      if (e.dataTransfer.files.length) wczytajPliki(e.dataTransfer.files);
+    });
   }
 
   function onInput(e) {
@@ -2495,21 +2461,10 @@ pre.raport{color:#0b0f14}
     finally{S.dbfSaving=false;}
   }
 
-  async function pobierz(blob, name) {
-    if(window.pywebview&&window.pywebview.api&&window.pywebview.api.save_export){
-      try{
-        var bytes=new Uint8Array(await blob.arrayBuffer());
-        var result=await window.pywebview.api.save_export(name,dbfBase64(bytes));
-        if(!result.ok&&!result.cancelled)alert('Nie udało się wyeksportować pliku: '+result.error);
-      }catch(e){alert('Błąd eksportu: '+e.message);}
-      return;
-    }
-    if(window.pywebview){alert('Eksport natywny nie jest gotowy. Poczekaj chwilę lub przebuduj EXE po zastosowaniu V11.');return;}
-    var a=document.createElement('a');var url=URL.createObjectURL(blob);
-    a.href=url;a.download=name;document.body.appendChild(a);a.click();
-    setTimeout(function(){URL.revokeObjectURL(url);a.remove();},1000);
+  function pobierz(blob, name) {
+    var a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   }
-
 
   /* ----------------------------------------------- mini-ZIP (store) ---- */
   var CRC_TABLE = (function () { var t = []; for (var n = 0; n < 256; n++) { var c = n; for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; } return t; })();
