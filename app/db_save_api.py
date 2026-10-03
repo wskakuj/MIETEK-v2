@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import json
 import os
 import tempfile
 import threading
@@ -9,7 +10,37 @@ class DbSaveApi:
     def __init__(self):
         self._window = None
         self._root = None
+        self._set_dir = None      # folder z plikami DBF (tu leży MIETEK_numery.json)
         self._lock = threading.Lock()
+
+    # MIETEK_NUMERY_FILE_V14 ------------------------------------------------
+    # Numery porządkowe i numery działek nie mieszczą się w DBF, więc trzymamy je
+    # w pliku obok danych — dzięki temu jadą razem z folderem na inny komputer.
+    NUMERY_PLIK = 'MIETEK_numery.json'
+
+    def _numery_path(self):
+        root = self._set_dir or self._root
+        if not root:
+            return None
+        return Path(root) / self.NUMERY_PLIK
+
+    def save_numery(self, wpisy):
+        try:
+            target = self._numery_path()
+            if target is None:
+                return {'ok': False, 'error': 'Najpierw wczytaj dane przez Wybierz folder lub Wybierz pliki.'}
+            payload = {'wersja': 1,
+                       'opis': 'MIETEK v2 — numery porządkowe i numery działek (poza DBF, do importu w Excelu)',
+                       'wpisy': wpisy if isinstance(wpisy, dict) else {}}
+            fd, tmp = tempfile.mkstemp(prefix='.mietek-numery-', dir=str(target.parent))
+            with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+                json.dump(payload, stream, ensure_ascii=False, indent=2)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(tmp, str(target))
+            return {'ok': True, 'path': str(target), 'ile': len(payload['wpisy'])}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
 
     def save_dbf(self, entries):
         if not self._lock.acquire(False):
@@ -112,13 +143,29 @@ class DbSaveApi:
             else:
                 paths=[Path(p).resolve() for p in chosen if Path(p).suffix.lower() in ('.dbf','.lst')]
                 root=Path(os.path.commonpath([str(p.parent) for p in paths])) if paths else Path(chosen[0]).parent
+            # folder z danymi = katalog plików DBF (tu trafi MIETEK_numery.json)
+            dbf_dirs=sorted({p.parent for p in paths if p.suffix.lower()=='.dbf'},key=lambda d:str(d).casefold())
+            if dbf_dirs:
+                try:self._set_dir=Path(os.path.commonpath([str(d) for d in dbf_dirs]))
+                except ValueError:self._set_dir=dbf_dirs[0]
+            else:
+                self._set_dir=root
             self._sources={}
             result=[]
             for p in sorted(paths,key=lambda p:str(p).casefold()):
                 token=uuid.uuid4().hex;self._sources[token]=p
                 result.append({'name':p.name,'relative':root.name+'/'+p.relative_to(root).as_posix(),'token':token,'data':base64.b64encode(p.read_bytes()).decode('ascii')})
             self._remember_dialog_directory(chosen,folder)
-            return {'ok':True,'files':result}
+            # numery porządkowe / działki zapisane przy poprzedniej pracy
+            numery={};sciezka=None
+            np_=self._numery_path()
+            if np_ is not None and np_.exists():
+                sciezka=str(np_)
+                try:
+                    dane=json.loads(np_.read_text(encoding='utf-8'))
+                    if isinstance(dane,dict) and isinstance(dane.get('wpisy'),dict):numery=dane['wpisy']
+                except Exception:numery={}
+            return {'ok':True,'files':result,'numery':numery,'numerySciezka':sciezka,'folder':str(self._set_dir)}
         except Exception as e:return {'ok':False,'error':str(e)}
 
     def open_report(self, html, print_now=False):

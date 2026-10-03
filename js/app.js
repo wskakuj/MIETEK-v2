@@ -1,0 +1,2085 @@
+/* ===================== TAKSATOR TERENOWY — LOGIKA ===================== */
+
+/* ---------- słowniki ---------- */
+const GATUNKI = ["Ak", "Brz", "Brzb", "Brzom", "Bk", "Czm", "Czr", "Dg", "Db", "Dbs", "Dbc", "Dbb",
+  "Gb", "Gr", "Jb", "Jrz", "Jw", "Jd", "Js", "Jkl", "Kl", "Ksz", "Lp", "Md", "Ol", "Olsz", "Orz",
+  "Os", "So", "Sob", "Socz", "Sosm", "Sowm", "Św", "Tp", "Wz", "Wb"];
+const SLOWNIKI = {
+  /* pełne zestawy wg WYKAZU SKRÓTÓW I SYMBOLI (Symbole nazw drzew) */
+  siedlisko: ["Bs", "Bśw", "Bw", "Bb", "BMśw", "BMw", "BMb", "LMśw", "LMw", "LMb", "Lśw", "Lw", "Lł", "Ol", "OlJ"],
+  panujacy:  GATUNKI,
+  drugi:     GATUNKI,
+  pjd:       GATUNKI,
+  zwarcie:   ["pełne", "duże", "umiark.", "przeryw.", "rzadkie", "luźne"],
+  podsz:     ["krusz", "jrz", "leszcz", "suchodr", "malina", "jeżyna", "bez czarny", "trzmielina",
+              "czeremcha", "grusza", "jabłoń", "klon", "lipa", "wierzba"]
+};
+const GRUPY_POJEDYNCZE = new Set(["siedlisko", "panujacy", "drugi", "zwarcie"]);
+
+/* FORESTLY_GO_AUTOFILL_V2 — mapy do autouzupełniania (łatwe do zmiany) */
+/* zadrzewienie [%] ze zwarcia — wartości orientacyjne, można dowolnie poprawić */
+const ZADRZEW_ZWARCIE = { "pełne": 100, "duże": 90, "umiark.": 70, "przeryw.": 50, "rzadkie": 30, "luźne": 20 };
+/* podpowiedzi wskazań (datalist) — najpierw pasujące do wieku, potem reszta słownika */
+const WSKAZA_KODY = ["CP", "CP w 2naw.", "CP z m3", "CS", "CW", "Dol.", "Inne", "Magr.oczyś", "Magr.wyrów",
+  "Mel.agr.", "Mel.wodne", "Naw.", "Oczyścić", "Odn.", "Piel.", "Piel.p.poz", "Pods.", "Popr.", "Pozostawić",
+  "Przeklas.", "Rb I", "Rb II", "Rb III", "Rb IV", "TP", "TW", "TW w 2naw.", "Uprzątnąc", "Us.nas.",
+  "Us.przedr.", "Us.przest.", "Uzup.", "Wpr.podsz.", "Wyrównać", "Zalesić", "16Xdo29II", "do5l po Rb",
+  "drz.dziupl", "Nat.2000", "O.chr.kr.", "Wykonyw.", "Wykonać", "uprz.płaz"];
+const WSKAZA_WIEK = [
+  { do: 10,   kody: ["Piel.", "Popr.", "CW", "Oczyścić", "Uzup."] },
+  { do: 20,   kody: ["CW", "CP", "Piel.", "Uzup.", "Mel.agr."] },
+  { do: 40,   kody: ["CP", "TW", "Piel.p.poz"] },
+  { do: 60,   kody: ["TW", "TP"] },
+  { do: 80,   kody: ["TP"] },
+  { do: 100,  kody: ["TP", "Rb III"] },
+  { do: 9999, kody: ["Rb I", "Rb II", "Rb III", "Rb IV"] }
+];
+/* siedliska bagienne/mokre — dorzucamy meliorację wodną do podpowiedzi */
+const SIEDL_MOKRE = new Set(["Lł", "Ol", "OlJ"]);
+const GRUPY_WIELOKROTNE = new Set(["pjd", "podsz"]);
+
+/* ---------- „ostatnio używane" kody (FORESTLY_GO_OSTATNIE_V1) ----------
+   Osobny rządek chipów nad każdą grupą — najczęściej używane kody ma pod ręką,
+   bez przewijania całego słownika. Trzymane w localStorage. */
+const OSTATNIE_MAX = 6;
+const OSTATNIE_GRUPY = ["siedlisko", "panujacy", "drugi", "zwarcie", "pjd", "podsz"];
+let OSTATNIE = {};
+try { OSTATNIE = JSON.parse(localStorage.getItem("fg_ostatnie") || "{}") || {}; } catch (e) { OSTATNIE = {}; }
+
+function zapamietajOstatnie(g, v) {
+  if (!OSTATNIE_GRUPY.includes(g) || !v) return;
+  const arr = (OSTATNIE[g] || []).filter(x => x !== v);
+  arr.unshift(v);
+  OSTATNIE[g] = arr.slice(0, OSTATNIE_MAX);
+  try { localStorage.setItem("fg_ostatnie", JSON.stringify(OSTATNIE)); } catch (e) {}
+}
+function zapamietajOstatnieZFormularza() {
+  zapamietajOstatnie("siedlisko", stan.siedlisko);
+  zapamietajOstatnie("panujacy", stan.panujacy);
+  zapamietajOstatnie("drugi", stan.drugi);
+  zapamietajOstatnie("zwarcie", stan.zwarcie);
+  (stan.pjd || []).forEach(v => zapamietajOstatnie("pjd", v));
+  (stan.podsz || []).forEach(v => zapamietajOstatnie("podsz", v));
+}
+
+/* ---------- stan formularza ---------- */
+let stan = nowyStan();
+let trybEdycji = null; // id wpisu, który edytujemy
+
+/* ---------- autouzupełnianie (FORESTLY_GO_AUTOFILL_V2) ----------
+   autoVals: ostatnie wartości wpisane automatycznie (tylko je odświeżamy).
+   reczne:   pola wpisane ręcznie — nie ruszamy ich.
+   Zerowane przy każdym nowym/ładowanym wpisie (uzupelnijForm). */
+let autoVals = {};
+let reczne = {};
+
+function oddzPelne(w) {
+  w = w || stan;
+  if (w.oddz === undefined && w.oddzPelne !== undefined) return w.oddzPelne;
+  return (w.oddz || "") + (w.poddz || "");
+}
+function nowyStan() {
+  return {
+    wies: "", dzialki: [],
+    siedlisko: null, panujacy: null, drugi: null, udzialPanujacy: 10, udzialDrugi: 0,
+    wiekPrzec: 90, pjd: [], pjdWiekPrzec: 70,
+    zwarcie: null, podsz: [], podszProc: 0,
+    elWys: "", elPier: "", elBon: "", elZad: "", elMiaz: "",
+    wskTyp: "", wskPow: "", wskMiaz: "",
+    lat: null, lon: null, locZrodlo: null
+  };
+}
+
+/* ---------- narzędzia UI ---------- */
+const $ = s => document.querySelector(s);
+function toast(msg, ms) {
+  const t = $("#toast");
+  t.textContent = msg; t.classList.add("on");
+  clearTimeout(t._tm); t._tm = setTimeout(() => t.classList.remove("on"), ms || 2600);
+}
+function przelaczTab(nazwa) {
+  document.querySelectorAll(".bn").forEach(b => {
+    // specjalny przypadek dla "wsie", bo przycisk w nawigacji ma data-tab="wsie", 
+    // ale idzie to też w parze z ID "bn-wies" na samym przycisku, upewnijmy się, że dobrze go "łapie"
+    b.classList.toggle("on", b.dataset.tab === nazwa || (nazwa === "wsie" && b.id === "bn-wies"));
+  });
+  document.querySelectorAll(".pane").forEach(p => p.classList.toggle("on", p.id === "pane-" + nazwa));
+  if (nazwa === "mapa") setTimeout(() => { satInit(); odswiezPinezki(); }, 60);
+  if (nazwa === "wykaz") rysujWykaz();
+  if (nazwa === "sync") rysujSync();
+  if (nazwa === "wsie") rysujPulpitWsi();
+  if (nazwa === "form") odswiezOstatni();
+}
+
+/* ---------- pulpit wsi ---------- */
+let aktywnaWies = localStorage.getItem("aktywnaWies") || "";
+async function rysujPulpitWsi() {
+  const wszystkieRaw = await DB.wpisyAll();
+  const wszystkie = wszystkieRaw.filter(x => !x.usuniety);   /* usunięte nie liczą się na pulpicie */
+  const wsie = [...new Set(wszystkie.map(x => x.wies).filter(Boolean))];
+  const box = $("#wies-grid");
+  const nieslane = wszystkie.filter(x => x.status !== "wyslany").length;
+  const baner = nieslane ? `<div class="auto-wysylka-baner">⬆ Do wysłania: <b>${nieslane}</b> ` +
+    (nieslane === 1 ? "wpis" : (nieslane % 10 >= 2 && nieslane % 10 <= 4 &&
+      (nieslane % 100 < 10 || nieslane % 100 >= 20) ? "wpisy" : "wpisów")) +
+    " — wyślę automatycznie, gdy będzie zasięg</div>" : "";
+  /* statystyka dnia (v1.0.58) */
+  const dzis0 = new Date();
+  const dzis = dzis0.getFullYear() + "-" + String(dzis0.getMonth() + 1).padStart(2, "0") + "-" + String(dzis0.getDate()).padStart(2, "0");
+  const dzisWpisy = wszystkie.filter(x => (x.timestamp || "").slice(0, 10) === dzis);
+  const dzisWsie = new Set(dzisWpisy.map(x => x.wies)).size;
+  const odmOpis = n => n === 1 ? "opis" : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? "opisy" : "opisów");
+  const statystyka = dzisWpisy.length ? `<div class="pulpit-dzis">📅 <b>Dziś</b><br>opisy: <b>${dzisWpisy.length}</b><br>wsi: <b>${dzisWsie}</b></div>` : "";
+  /* karty wsi posortowane po ostatniej aktywności (v1.0.58) */
+  const ostatnio = new Map(wsie.map(w => [w, Math.max(0, ...wszystkie
+    .filter(x => x.wies === w).map(x => new Date(x.timestamp || 0).getTime() || 0))]));
+  wsie.sort((a, b) => (ostatnio.get(b) || 0) - (ostatnio.get(a) || 0));
+  const najnowsza = wsie[0];
+  const karty = wsie.map(w => {
+    const ile = wszystkie.filter(x => x.wies === w).length;
+    const wyslane = wszystkie.filter(x => x.wies === w && x.status === "wyslany").length;
+    return `<div class="wies-card" data-wies="${w}">
+      <div class="wc-gora"><span class="wc-ikona">🌲</span><span class="wc-ile">${ile}</span></div>
+      <b>${w}${w === najnowsza ? ' <span class="wc-ostatnio">ostatnio</span>' : ""}</b>
+      <small>${wyslane === ile ? "wszystko wysłane ✓" : "do wysłania: " + (ile - wyslane)}</small>
+    </div>`;
+  }).join("");
+  box.innerHTML = statystyka + baner + (wsie.length ? karty : '<div class="pulpit-info" style="text-align:center;margin-top:24vh">— jeszcze nic nie zebrane —</div>') +
+    `<div class="wies-card wies-nowa" id="wies-nowa">
+      <div class="wc-gora"><span class="wc-ikona">＋</span></div>
+      <b>Nowa wieś</b><small>nazwę wpiszesz przy pierwszym opisie</small>
+    </div>`;
+  box.querySelectorAll(".wies-card[data-wies]").forEach(k =>
+    k.addEventListener("click", () => przejdzDoWsi(k.dataset.wies)));
+  const n = $("#wies-nowa");
+  if (n) n.addEventListener("click", () => {
+    aktywnaWies = ""; localStorage.removeItem("aktywnaWies");
+    trybEdycji = null; stan = nowyStan(); uzupelnijForm(); rysuj(); przelaczTab("form");
+  });
+  odswiezAppbar();
+}
+function przejdzDoWsi(w) {
+  aktywnaWies = w; localStorage.setItem("aktywnaWies", w);
+  trybEdycji = null; stan = nowyStan(); stan.wies = w || "";
+  uzupelnijForm(); rysuj();
+  przelaczTab("wykaz");
+}
+
+/* ---------- kreator startowy ---------- */
+let onbKrok = 0;
+/* na telefonie (Android/iOS — w tym w Brave) File System Access nie działa
+   w karcie aplikacji — od razu pokazujemy tryb pobierania plików */
+const MOBILNY = /Android|iPhone|iPad/i.test(navigator.userAgent);
+const FOLDER_MOZLIWY = !!window.showDirectoryPicker && !MOBILNY && !NATYWNIE;
+/* natywny wybór folderu (Android, wtyczka Pliki) — działa też bez File System Access API */
+function jestFolderNatywny() {
+  try {
+    return czyNatywnie() && window.Capacitor.Plugins && !!window.Capacitor.Plugins.Pliki;
+  } catch (e) { return false; }
+}
+const FOLDER_NATYWNY = jestFolderNatywny();   /* tylko do warunków na starcie */
+async function wybierzFolder() {
+  if (jestFolderNatywny()) {
+    const r = await window.Capacitor.Plugins.Pliki.wybierzFolder();
+    return { uri: r.uri, nazwa: r.nazwa, natywny: true };
+  }
+  if (window.showDirectoryPicker) {
+    try {
+      return await pokazDialogFolderu();
+    } catch (e) {
+      /* „The user aborted a request” — na telefonie Chrome wystawia to API,
+         ale wybieracz się nie otwiera (PWA/TWA); na komputerze to zwykle
+         własne anulowanie. Anulowanie nie jest błędem do naprawiania. */
+      const anulowano = e && (e.name === "AbortError" || /abort/i.test(String(e.message)));
+      if (anulowano) {
+        if (MOBILNY) toast("Na telefonie folder wskażesz w aplikacji natywnej (APK Forestly GO) — " +
+          "to ona otwiera systemowy wybór folderu. W przeglądarce Excel pobierasz przyciskiem, " +
+          "folder nie jest potrzebny.", 8000);
+        return null;
+      }
+      throw e;
+    }
+  }
+  /* telefon w przeglądarce bez tego API (PWA): tłumaczymy zamiast rzucać błędem */
+  toast("Wybór folderu działa w aplikacji natywnej (APK Forestly GO) i na komputerze " +
+        "w Chrome/Edge. Tutaj pliki Excel i tak pobierzesz przyciskiem — folder nie jest potrzebny.", 6000);
+  return null;
+}
+
+function renderOnb() {
+  const kroki = ["Leśnik", "Folder na telefonie", "Chmury"];
+  const html = [];
+  html.push('<div class="onb-kroki">' + kroki.map((_, i) => `<i class="${i <= onbKrok ? "on" : ""}"></i>`).join("") + "</div>");
+  if (onbKrok === 0) {
+    html.push(`<h3>Kto zbiera dane?</h3>
+      <p>Imię i nazwisko staje się nazwą folderu na serwerze i podpisuje każdy wpis.</p>
+      <input class="f-input" id="onb-autor" placeholder="np. Mietek Kowalski" autocomplete="name">
+      <button type="button" class="fab" id="onb-dalej" style="margin-top:10px">Dalej →</button>
+      <button type="button" class="fab szary" id="onb-przywroc" style="margin-top:8px">Mam backup — przywróć sesję</button>`);
+  } else if (onbKrok === 1) {
+    if (FOLDER_MOZLIWY || jestFolderNatywny()) {
+      html.push(`<h3>Gdzie zapisywać pliki?</h3>
+        <p>Wskaż folder na tym urządzeniu — Excel z opisami będzie tam widoczny także dla innych aplikacji.</p>
+        <button type="button" class="fab" id="onb-folder">Wybierz folder</button>
+        <button type="button" class="fab szary" id="onb-folder-pomin">Pomiń (będę pobierał pliki ręcznie)</button>`);
+    } else {
+      html.push(`<h3>Gdzie zapisywać pliki?</h3>
+        <p>Na telefonie i w niektórych przeglądarkach (Firefox, Safari, Brave) nie da się
+        wskazać folderu na stałe. Nie szkodzi — Excel i backup pobierzesz przyciskiem,
+        a sesja i tak zapisuje się automatycznie w pamięci aplikacji oraz na chmurach po wysyłce.</p>
+        <button type="button" class="fab" id="onb-folder-pomin">OK — dalej</button>
+        <button type="button" class="fab szary" id="onb-przywroc-plik">Mam plik backupu — przywróć</button>`);
+    }
+  } else {
+    html.push(`<h3>Kopia zapasowa w chmurach</h3>
+      <p>Główne dane lądują na Twoim Nextcloud (QNAP), a w tej samej chwili kopia na Dysku Google i pCloud.
+      Możesz to teraz pominąć i skonfigurować później w zakładce <b>Sync</b>.</p>
+      <button type="button" class="fab" id="onb-gotowe">Zaczynajmy</button>
+      <button type="button" class="fab szary" id="onb-chmury">Skonfiguruj chmury teraz</button>`);
+  }
+  const box = $("#onb");
+  box.innerHTML = html.join("");
+
+  if (onbKrok === 0) {
+    const inp = $("#onb-autor");
+    inp.value = "";
+    setTimeout(() => inp.focus(), 100);
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") onbDalej(); });
+    $("#onb-dalej").addEventListener("click", onbDalej);
+    $("#onb-przywroc").addEventListener("click", async () => {
+      if (!FOLDER_MOZLIWY) {
+        window.__celPrzywrocenia = "onboarding";
+        $("#plik-backup").click();
+        return;
+      }
+      try {
+        const dir = await pokazDialogFolderu();
+        const r = await SESJA.przywroc(dir);
+        if (!r.ok) { toast("W tym folderze nie ma pliku backupu"); return; }
+        await DB.metaSet("folder", dir);
+        toast("Sesja przywrócona: " + r.ile + " wpisów ✓");
+        CLOUDS.log("<b>przywrócono sesję</b> — " + r.ile + " wpisów");
+        await zakonczOnboarding(false);
+        await odswiezStart();
+      } catch (e) { toast("Nie udało się wybrać folderu"); }
+    });
+  } else if (onbKrok === 1) {
+    const pw = $("#onb-przywroc-plik");
+    if (pw) pw.addEventListener("click", () => {
+      window.__celPrzywrocenia = "onboarding";
+      $("#plik-backup").click();
+    });
+    if (!$("#onb-folder")) { $("#onb-folder-pomin").addEventListener("click", () => { onbKrok = 2; renderOnb(); }); return; }
+    $("#onb-folder").addEventListener("click", async () => {
+      try {
+        const dir = await wybierzFolder();
+        await DB.metaSet("folder", dir);
+        const r = await SESJA.przywroc(dir);
+        if (r.ok) {
+          toast("Sesja przywrócona: " + r.ile + " wpisów ✓");
+          CLOUDS.log("<b>przywrócono sesję</b> — " + r.ile + " wpisów (" + String(r.zapisano || "").slice(0, 16).replace("T", " ") + ")");
+          await zakonczOnboarding(false);
+          await odswiezStart();
+          return;
+        }
+        toast("Folder zapisany: " + dir.name);
+        onbKrok = 2; renderOnb();
+      } catch (e) { toast("Nie udało się wybrać folderu — spróbuj ponownie"); }
+    });
+    $("#onb-folder-pomin").addEventListener("click", () => { onbKrok = 2; renderOnb(); });
+  } else {
+    $("#onb-gotowe").addEventListener("click", () => zakonczOnboarding(false));
+    $("#onb-chmury").addEventListener("click", () => zakonczOnboarding(true));
+  }
+}
+async function onbDalej() {
+  if (onbKrok === 0) {
+    const v = $("#onb-autor").value.trim();
+    if (!v) { toast("Podaj imię i nazwisko"); return; }
+    await DB.metaSet("autor", v);
+    onbKrok = 1; renderOnb();
+  }
+}
+async function zakonczOnboarding(doChmur) {
+  const autor = await DB.metaGet("autor");
+  if (!autor) { onbKrok = 0; renderOnb(); toast("Najpierw podaj imię i nazwisko"); return; }
+  $("#onboarding").classList.remove("on");
+  odswiezAppbar();
+  przelaczTab(doChmur ? "sync" : "wsie");
+}
+async function pokazDialogFolderu() {
+  if (window.showDirectoryPicker) return await window.showDirectoryPicker({ mode: "readwrite" });
+  throw new Error("brak File System Access API");
+}
+
+/* ---------- status połączenia z chmurami (online / lokalnie) ---------- */
+let STATUS_POLACZENIA = null;      /* null = sprawdzanie w toku */
+let __probeWLocie = false;
+function htmlStatusu() {
+  if (STATUS_POLACZENIA === null)
+    return '<span class="st-off" style="text-decoration:none">sprawdzam…</span>';
+  if (STATUS_POLACZENIA)
+    return '<span class="st-on">online</span>';
+  /* v1.0.59: „online lokalnie” myliło (słowo „online” na offline!) —
+     teraz wprost: offline, zapisujemy lokalnie */
+  return '<span class="st-off">offline</span> <span class="st-lok">zapis lokalny</span>';
+}
+function probeAdresu(url) {
+  /* zapytanie bez CORS: odpowiedź sieciowa = serwer żyje, nawet bez nagłówków CORS */
+  return new Promise(wynik => {
+    const t = setTimeout(() => wynik(false), 6000);
+    fetch(url, { mode: "no-cors", cache: "no-store" })
+      .then(() => { clearTimeout(t); wynik(true); })
+      .catch(() => { clearTimeout(t); wynik(false); });
+  });
+}
+async function sprawdzPolaczenie() {
+  if (__probeWLocie) return;
+  __probeWLocie = true;
+  try {
+    const ncC = await DB.metaGet("nextcloud") || {};
+    const pcC = await DB.metaGet("pcloud") || {};
+    const gdC = await DB.metaGet("gdrive") || {};
+    const cele = [];
+    if (ncC.url && ncC.pass) cele.push(String(ncC.url));
+    if (pcC.token) cele.push("https://" + (pcC.host || "api.pcloud.com"));
+    if (gdC.refreshToken) cele.push("https://www.googleapis.com");
+    if (!cele.length || !navigator.onLine) {
+      STATUS_POLACZENIA = false;
+    } else {
+      STATUS_POLACZENIA = (await Promise.all(cele.map(probeAdresu))).some(Boolean);
+    }
+  } catch (e) { STATUS_POLACZENIA = false; }
+  __probeWLocie = false;
+  const sub = $("#ab-sub");
+  if (sub) sub.innerHTML = htmlStatusu();
+}
+function resetujStatusPolaczenia() {
+  STATUS_POLACZENIA = null;
+  const sub = $("#ab-sub");
+  if (sub) sub.innerHTML = htmlStatusu();
+  sprawdzPolaczenie();
+}
+window.addEventListener("online", resetujStatusPolaczenia);
+window.addEventListener("offline", () => {
+  STATUS_POLACZENIA = false;
+  const sub = $("#ab-sub");
+  if (sub) sub.innerHTML = htmlStatusu();
+});
+/* v1.0.59: WebView rzadko odpala zdarzenia online/offline (a navigator.onLine
+   w trybie samolotowym kłamie „true”) — status i wysyłkę sprawdzamy sami,
+   sondując prawdziwe serwery chmur co minutę */
+setInterval(() => { if (!__probeWLocie) sprawdzPolaczenie(); }, 60000);
+
+/* ---------- pasek górny ---------- */
+async function odswiezAppbar() {
+  const autor = await DB.metaGet("autor");
+  const sub = $("#ab-sub"), chip = $("#ab-user"), k = $("#ab-kolejka");
+  sub.innerHTML = htmlStatusu();
+  const wAb = $("#ab-wersja");
+  if (wAb) wAb.textContent = (typeof WERSJA_APLIKACJI !== "undefined" ? WERSJA_APLIKACJI : "?");
+  if (STATUS_POLACZENIA === null) sprawdzPolaczenie();
+  chip.style.display = autor ? "flex" : "none";
+  chip.textContent = autor ? autor.split(" ").map(x => x[0]).slice(0, 2).join("").toUpperCase() : "?";
+  const kol = await CLOUDS.kolejkaInfo();
+  k.style.display = kol.doWyslania > 0 ? "inline-block" : "none";
+  k.textContent = "kolejka: " + kol.doWyslania;
+  const abObr = $("#ab-obreb");
+  if (stan.wies || aktywnaWies) { abObr.style.display = "inline-block"; abObr.textContent = aktywnaWies || stan.wies; }
+  else abObr.style.display = "none";
+}
+
+/* ---------- chips ---------- */
+function renderChips() {
+  document.querySelectorAll(".chips[data-group]").forEach(box => {
+    const g = box.dataset.group;
+    if (box.dataset.recent) {
+      /* rządek „ostatnio" — tylko kody nadal obecne w słowniku */
+      const rec = (OSTATNIE[g] || []).filter(v => (SLOWNIKI[g] || []).includes(v));
+      if (!rec.length) { box.innerHTML = ""; box.hidden = true; return; }
+      box.hidden = false;
+      box.innerHTML = '<span class="chips-rec-label">⟲ ostatnio</span>' +
+        rec.map(v => `<span class="chip ostatni ${jestAktywny(g, v) ? "on" : ""}" data-v="${v}">${v}</span>`).join("");
+      return;
+    }
+    box.innerHTML = SLOWNIKI[g].map(v =>
+      `<span class="chip ${jestAktywny(g, v) ? "on" : ""}" data-v="${v}">${v}</span>`).join("");
+  });
+}
+/* udział panującego dociągany z udziału drugiego gatunku (skład sumuje się do 10) */
+function zsynchronizujUdzial() {
+  stan.udzialPanujacy = Math.max(0, Math.min(10, 10 - (stan.udzialDrugi || 0)));
+}
+function jestAktywny(g, v) {
+  if (GRUPY_POJEDYNCZE.has(g)) return stan[g] === v;
+  return stan[g].includes(v);
+}
+document.addEventListener("click", e => {
+  const chip = e.target.closest(".chip[data-v]");
+  if (!chip) return;
+  const box = chip.closest(".chips[data-group]");
+  const g = box.dataset.group, v = chip.dataset.v;
+  if (GRUPY_POJEDYNCZE.has(g)) {
+    stan[g] = stan[g] === v ? null : v;
+    if (g === "drugi" && !stan.drugi) stan.udzialDrugi = 0;
+    if (g === "drugi") zsynchronizujUdzial();
+  } else {
+    const i = stan[g].indexOf(v);
+    if (i >= 0) stan[g].splice(i, 1); else stan[g].push(v);
+  }
+  if (jestAktywny(g, v)) zapamietajOstatnie(g, v);
+  renderChips(); rysuj();
+});
+
+/* ---------- steppery ---------- */
+document.addEventListener("click", e => {
+  const b = e.target.closest("button[data-step]");
+  if (!b) return;
+  const krok = parseInt(b.dataset.dir, 10);
+  switch (b.dataset.step) {
+    case "udzialpan": stan.udzialPanujacy = Math.min(10, Math.max(0, udzialPan(stan) + krok)); break;
+    case "udzial": stan.udzialDrugi = Math.min(10, Math.max(0, stan.udzialDrugi + krok)); zsynchronizujUdzial(); break;
+    case "wiek": stan.wiekPrzec = Math.max(10, stan.wiekPrzec + krok); break;
+    case "pjdwiek": stan.pjdWiekPrzec = Math.max(10, stan.pjdWiekPrzec + krok); break;
+    case "podszproc": stan.podszProc = Math.min(100, Math.max(0, stan.podszProc + krok)); break;
+  }
+  rysuj();
+});
+
+/* klik w wartość stepperów — ręczne wpisanie liczby */
+const udzialPan = w => (w.udzialPanujacy != null ? w.udzialPanujacy : 10 - (w.udzialDrugi || 0));
+const EDYTOWALNE = {
+  udzialpan: { val: () => udzialPan(stan), set: n => stan.udzialPanujacy = Math.min(10, Math.max(0, n)) },
+  udzial:    { val: () => stan.udzialDrugi, set: n => stan.udzialDrugi = Math.min(10, Math.max(0, n)) },
+  wiek:      { val: () => stan.wiekPrzec, set: n => stan.wiekPrzec = Math.min(300, Math.max(1, n)) },
+  pjdwiek:   { val: () => stan.pjdWiekPrzec, set: n => stan.pjdWiekPrzec = Math.min(300, Math.max(1, n)) },
+  podszproc: { val: () => stan.podszProc, set: n => stan.podszProc = Math.min(100, Math.max(0, n)) }
+};
+document.addEventListener("click", e => {
+  const v = e.target.closest("[data-edit]");
+  if (!v || v.querySelector("input")) return;
+  const tryb = v.dataset.edit, def = EDYTOWALNE[tryb];
+  if (!def) return;
+  const span = v.querySelector("span");
+  const inp = document.createElement("input");
+  inp.type = "text"; inp.inputMode = "numeric";
+  inp.value = def.val();
+  inp.style.cssText = "width:4.5em;font:inherit;padding:1px 4px;border:1px solid #3a5c33;" +
+    "border-radius:6px;background:#fff;color:#1b2b17;text-align:center";
+  v.insertBefore(inp, span);
+  span.style.display = "none";
+  inp.focus(); inp.select();
+  let zakonczono = false;
+  const zakoncz = zapis => {
+    if (zakonczono) return; zakonczono = true;
+    if (zapis) {
+      const n = parseInt(inp.value.replace(/[^0-9]/g, ""), 10);
+      if (!isNaN(n)) def.set(n);
+    }
+    inp.remove(); span.style.display = ""; rysuj();
+  };
+  inp.addEventListener("keydown", ev => {
+    if (ev.key === "Enter") { ev.preventDefault(); zakoncz(true); }
+    else if (ev.key === "Escape") { ev.preventDefault(); zakoncz(false); }
+  });
+  inp.addEventListener("blur", () => zakoncz(true));
+});
+
+/* ---------- podgląd OPTAX ---------- */
+function pvToggle() {
+  const pv = $("#pv");
+  pv.classList.toggle("min");
+  $("#pv-chev").textContent = pv.classList.contains("min") ? "rozwiń ▾" : "zwiń ▴";
+}
+$("#pv-chev").addEventListener("click", pvToggle);
+
+/* pasek zapisu: podsumowanie na żywo + postęp pól obowiązkowych */
+function odswiezPasekZapisu() {
+  const suma = $("#zp-suma"), sub = $("#zp-suma-sub"), postep = $("#zp-postep");
+  if (!suma) return;
+  suma.textContent = (stan.wies || "— wybierz wieś") + " · " +
+    (stan.dzialki.length ? stan.dzialki.join(", ") : "— nr wydz.");
+  const drzewa = [stan.panujacy, stan.drugi].filter(Boolean).join(" + ") || "—";
+  sub.textContent = (stan.siedlisko || "—") + " · " + drzewa +
+    (stan.zwarcie ? " · " + stan.zwarcie : "");
+  /* kompletność CAŁEGO opisu — pasek napełnia się w miarę wypełniania
+     kolejnych sekcji, nie całości po samym drzewostanie */
+  const spelnione = [
+    !!stan.wies,             // 1. wieś
+    stan.dzialki.length > 0, // 2. numery wydzieleń
+    !!stan.siedlisko,        // 3. siedlisko
+    !!stan.panujacy,         // 4. gatunek panujący
+    !!stan.zwarcie,          // 5. zwarcie
+    stan.podsz.length > 0,   // 6. podszyt
+    stan.lat != null         // 7. lokalizacja
+  ];
+  const ile = spelnione.filter(Boolean).length;
+  if (postep) {
+    postep.innerHTML = spelnione.map(ok => '<i class="' + (ok ? "on" : "") + '"></i>').join("");
+    postep.title = "kompletność opisu: " + ile + " / 7";
+  }
+}
+/* FORESTLY_GO_AUTOFILL_V2 — pola, które same się wypełniają.
+   Zasada dla każdego pola: ustawiamy je, gdy jest puste albo gdy zawiera naszą
+   poprzednią wartość automatyczną. Wartości wpisanej ręcznie ani wczytanej
+   z pliku NIE nadpisujemy. */
+function autoUstaw(klucz, val, sel) {
+  if (reczne[klucz]) return;
+  const teraz = String(stan[klucz] == null ? "" : stan[klucz]).trim();
+  const nowe = String(val);
+  if (teraz && teraz !== autoVals[klucz]) return;   // wpis ręczny / z pliku — zostaw
+  if (teraz !== nowe) { stan[klucz] = nowe; const e = $(sel); if (e) e.value = nowe; }
+  autoVals[klucz] = nowe;
+}
+
+function autoUzupelnij() {
+  /* 1. bonitacja i miąższość z tablicy SBONITA (gatunek panujący + wiek + wysokość) */
+  if (typeof BONITACJA !== "undefined" && BONITACJA) {
+    const res = BONITACJA.dla(stan.panujacy, stan.wiekPrzec, stan.elWys);
+    if (res) {
+      if (res.bonit) autoUstaw("elBon", res.bonit, "#e-bon");
+      if (res.miaz != null) autoUstaw("elMiaz", res.miaz, "#e-miaz");
+    }
+  }
+  /* 2. zadrzewienie ze zwarcia */
+  const zz = ZADRZEW_ZWARCIE[stan.zwarcie];
+  if (zz != null) autoUstaw("elZad", zz, "#e-zad");
+  /* 3. miąższość wskazania = miąższość [m³/ha] × powierzchnia wskazania [ha] */
+  const mm = parseFloat(String(stan.elMiaz || "").replace(",", "."));
+  const pw = parseFloat(String(stan.wskPow || "").replace(",", "."));
+  if (isFinite(mm) && isFinite(pw) && pw > 0) autoUstaw("wskMiaz", Math.round(mm * pw * 10) / 10, "#w-miaz");
+}
+
+/* podpowiedzi wskazań: pasujące do wieku na początku, potem reszta słownika */
+function wypelnijWskazania() {
+  const dl = $("#dl-wsk"); if (!dl) return;
+  const w = stan.wiekPrzec || 0;
+  let biezace = null;
+  for (const g of WSKAZA_WIEK) { if (w <= g.do) { biezace = g.kody.slice(); break; } }
+  const zestaw = biezace || [];
+  if (SIEDL_MOKRE.has(stan.siedlisko) && !zestaw.includes("Mel.wodne")) zestaw.push("Mel.wodne");
+  WSKAZA_KODY.forEach(k => { if (!zestaw.includes(k)) zestaw.push(k); });
+  const klucz = w + "|" + stan.siedlisko + "|" + zestaw.join(",");
+  if (dl.dataset.klucz === klucz) return;
+  dl.dataset.klucz = klucz;
+  dl.innerHTML = zestaw.map(k => '<option value="' + k + '"></option>').join("");
+}
+
+function rysuj() {
+  autoUzupelnij();
+  wypelnijWskazania();
+  const kPan = OPTAX.krok(stan.wiekPrzec);
+  $("#wiek-linia").textContent = (stan.wiekPrzec - kPan) + "–" + (stan.wiekPrzec + kPan) + " / " + stan.wiekPrzec + " l";
+  $("#wiek-klasa").textContent = "klasa wieku " + OPTAX.klasaWieku(stan.wiekPrzec);
+  const kPjd = OPTAX.krok(stan.pjdWiekPrzec);
+  $("#pjd-wiek-linia").textContent = (stan.pjdWiekPrzec - kPjd) + "–" + (stan.pjdWiekPrzec + kPjd) + " / " + stan.pjdWiekPrzec + " l";
+  $("#podsz-proc").textContent = stan.podszProc + "%";
+  $("#e-kl").textContent = "kl. " + OPTAX.klasaWieku(stan.wiekPrzec);
+  $("#udzial-pan-linia").textContent = stan.panujacy
+    ? udzialPan(stan) + " " + stan.panujacy
+    : "wybierz gatunek";
+  $("#udzial-linia").textContent = stan.drugi
+    ? stan.udzialDrugi + " " + stan.drugi
+    : "—";
+  $("#pv-line").textContent = OPTAX.linie(stan).join("\n");
+  $("#pv-line").classList.remove("pv-flash"); void $("#pv-line").offsetWidth; $("#pv-line").classList.add("pv-flash");
+  $("#pv-stamp").textContent = oddzPelne() || "—";
+  const loc = $("#loc-info");
+  loc.textContent = stan.lat != null
+    ? stan.lat.toFixed(5) + "° N · " + stan.lon.toFixed(5) + "° E · " + (stan.locZrodlo || "")
+    : "brak lokalizacji";
+  odswiezPasekZapisu();
+  odswiezAppbar();
+}
+
+/* ---------- pola tekstowe ---------- */
+function bindInput(id, klucz, transform) {
+  const el = $(id);
+  el.addEventListener("input", () => {
+    stan[klucz] = transform ? transform(el.value) : el.value;
+    if (klucz === "wies") odswiezAppbar();
+    rysuj();
+  });
+}
+bindInput("#in-wies", "wies");
+/* działki: numer dodaje się sam (Enter albo przejście do kolejnego pola);
+   można wpisać kilka naraz po przecinku */
+function dzialkiDodaj(trzymajFokus) {
+  const inp = $("#in-dzialka");
+  const czesci = inp.value.split(/[,;]+/).map(x => x.replace(/\s+/g, "")).filter(Boolean);
+  for (const v of czesci) if (!stan.dzialki.includes(v)) stan.dzialki.push(v);
+  if (czesci.length) { renderDzialki(); rysuj(); }
+  inp.value = "";
+  if (trzymajFokus) inp.focus();
+}
+function dzialkiUsun(v) {
+  stan.dzialki = stan.dzialki.filter(x => x !== v);
+  renderDzialki(); rysuj();
+}
+let dzialkiRozwinięte = false;
+function renderDzialki() {
+  const box = $("#dzialki-chips");
+  const ile = stan.dzialki.length;
+  const LIMIT = 6;
+  const pokaz = dzialkiRozwinięte ? stan.dzialki : stan.dzialki.slice(0, LIMIT);
+  box.innerHTML = pokaz.map(v =>
+    `<span class="chip-x">${v}<i data-dzialka-usun="${v}">×</i></span>`).join("") +
+    (ile > LIMIT && !dzialkiRozwinięte ? `<span class="chips-more" id="dzialki-more">… +${ile - LIMIT} — pokaż</span>` : "") +
+    (ile > LIMIT && dzialkiRozwinięte ? `<span class="chips-more" id="dzialki-more">zwiń ▴</span>` : "");
+}
+document.addEventListener("click", e => {
+  const usun = e.target.closest("[data-dzialka-usun]");
+  if (usun) { dzialkiUsun(usun.dataset.dzialkaUsun); return; }
+  if (e.target.id === "dzialki-more") { dzialkiRozwinięte = !dzialkiRozwinięte; renderDzialki(); }
+});
+/* numer wydzielenia: akceptuje się dopiero, gdy dotkniesz czegokolwiek
+   innego (przejście do kolejnego pola, zapis itd.) — bez Enter */
+$("#in-dzialka").addEventListener("blur", () => dzialkiDodaj(false));
+/* flagi muszą być podpięte PRZED bindInput — inaczej rysuj() nadpisałby wpis ręczny */
+/* flaga = "pole ma treść" — wyczyszczenie pola włącza autouzupełnianie z powrotem */
+[["#e-bon", "elBon"], ["#e-miaz", "elMiaz"], ["#e-zad", "elZad"], ["#w-miaz", "wskMiaz"]]
+  .forEach(([sel, klucz]) => $(sel).addEventListener("input",
+    e => { reczne[klucz] = String(e.target.value || "").trim() !== ""; }));
+bindInput("#e-wys", "elWys");
+bindInput("#e-pier", "elPier");
+bindInput("#e-bon", "elBon");
+bindInput("#e-zad", "elZad");
+bindInput("#e-miaz", "elMiaz");
+bindInput("#w-typ", "wskTyp");
+bindInput("#w-pow", "wskPow");
+bindInput("#w-miaz", "wskMiaz");
+
+/* ---------- lokalizacja ---------- */
+function gpsZlapuj() {
+  if (!navigator.geolocation) { toast("To urządzenie nie ma GPS"); return; }
+  toast("Szukam sygnału GPS…");
+  navigator.geolocation.getCurrentPosition(p => {
+    stan.lat = p.coords.latitude; stan.lon = p.coords.longitude;
+    stan.locZrodlo = "GPS";
+    rysuj(); toast("Lokalizacja zapisana (" + stan.lat.toFixed(5) + ", " + stan.lon.toFixed(5) + ")");
+  }, err => toast("GPS niedostępny: " + err.message), { enableHighAccuracy: true, timeout: 15000 });
+}
+$("#btn-gps").addEventListener("click", gpsZlapuj);
+$("#btn-gps2").addEventListener("click", gpsZlapuj);
+$("#btn-mapa").addEventListener("click", () => przelaczTab("mapa"));
+
+/* ---------- mapa ---------- */
+let mapa = null, pinezka = null, satInitDone = false, warstwaDrog = null, warstwaWpisow = null;
+let podstawaMapy = null, trybMapy = "sat";
+const MAPA_SAT = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const MAPA_OSM = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+/* kafelki: kazdy dostaje druga szanse; gdy satelita pada - automatycznie zwykla mapa */
+function warstwaPlytek(url, opcje) {
+  const w = L.tileLayer(url, opcje);
+  let bledy = 0, przelaczono = false;
+  w.on("tileerror", e => {
+    const t = e.tile;
+    /* druga szansa dla pojedynczego kafelka */
+    if (t && !t.__sprobowano) {
+      t.__sprobowano = 1;
+      const src = t.src;
+      if (src) t.src = src + (src.includes("?") ? "&" : "?") + "s=" + Date.now();
+    }
+    /* gdy kafelków sypie się dużo — przełączamy na zwykłą mapę */
+    if (!przelaczono && trybMapy === "sat" && ++bledy >= 12) {
+      przelaczono = true;
+      toast("Mapa satelitarna chwilowo niedostępna — włączam zwykłą mapę");
+      przelaczTrybMapy("osm", true);
+    }
+  });
+  return w;
+}
+function przelaczTrybMapy(tryb, cicho) {
+  trybMapy = tryb;
+  if (podstawaMapy) mapa.removeLayer(podstawaMapy);
+  if (tryb === "osm") {
+    podstawaMapy = warstwaPlytek(MAPA_OSM, { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(mapa);
+    if (!cicho) toast("Zwykła mapa (OpenStreetMap)");
+  } else {
+    podstawaMapy = warstwaPlytek(MAPA_SAT, { maxZoom: 19, attribution: "Esri World Imagery" }).addTo(mapa);
+    if (!cicho) toast("Mapa satelitarna");
+  }
+  const btn = $("#mapa-tryb");
+  if (btn) btn.textContent = tryb === "sat" ? "🗺 OpenStreet" : "🛰 Satelita";
+}
+let znacznikPozycji = null, ostatniaPozycja = null;
+/* nasza pozycja z GPS — niebieska kropka na mapie */
+function pokazPozycje(lat, lng) {
+  ostatniaPozycja = [lat, lng];
+  if (!mapa) return;
+  if (!znacznikPozycji) {
+    znacznikPozycji = L.circleMarker([lat, lng],
+      { radius: 9, color: "#ffffff", weight: 3, fillColor: "#2A468B", fillOpacity: 1 }).addTo(mapa);
+  } else znacznikPozycji.setLatLng([lat, lng]);
+}
+if (navigator.geolocation) {
+  navigator.geolocation.watchPosition(p => pokazPozycje(p.coords.latitude, p.coords.longitude),
+    () => {}, { enableHighAccuracy: true, maximumAge: 5000 });
+}
+$("#btn-pozycja").addEventListener("click", () => {
+  if (!mapa) return;
+  const najedz = () => mapa.setView(ostatniaPozycja, Math.max(mapa.getZoom(), 16));
+  if (ostatniaPozycja) { najedz(); return; }
+  if (!navigator.geolocation) { toast("Brak GPS na tym urządzeniu"); return; }
+  toast("Ustalam pozycję…");
+  navigator.geolocation.getCurrentPosition(p => {
+    pokazPozycje(p.coords.latitude, p.coords.longitude);
+    najedz();
+  }, () => toast("Nie mogę ustalić pozycji — sprawdź, czy GPS jest włączony"),
+    { enableHighAccuracy: true, timeout: 10000 });
+});
+function przelaczDrogi(on) {
+  if (!mapa) return;
+  if (on && !warstwaDrog) {
+    warstwaDrog = L.layerGroup([
+      warstwaPlytek("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19 }),
+      warstwaPlytek("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19 })
+    ]).addTo(mapa);
+  } else if (!on && warstwaDrog) { mapa.removeLayer(warstwaDrog); warstwaDrog = null; }
+}
+$("#mapa-drogi").addEventListener("change", e => przelaczDrogi(e.target.checked));
+$("#mapa-tryb").addEventListener("click", () => przelaczTrybMapy(trybMapy === "sat" ? "osm" : "sat"));
+/* ---------- okienko OPTAX po kliknięciu pinezki ---------- */
+function otworzOptaxOkno(w) {
+  const esc = t => String(t).replace(/[<>&]/g, zn => ({ "<": "\u003C", ">": "\u003E", "&": "\u0026" }[zn]));
+  const nr = (Array.isArray(w.dzialki) && w.dzialki.length ? w.dzialki.join(", ") : "") || oddzPelne(w) || "—";
+  const linie = OPTAX.linie(w);
+  const el = [];
+  if (w.elWys) el.push("wys. " + w.elWys + " m");
+  if (w.elPier) el.push("pierś. " + w.elPier + " cm");
+  if (w.elBon) el.push("bon. " + w.elBon);
+  if (w.elZad) el.push("zad. " + w.elZad + "%");
+  if (w.elMiaz) el.push("miąż. " + w.elMiaz + " m³/ha");
+  const wsk = [];
+  if (w.wskTyp) wsk.push(w.wskTyp);
+  if (w.wskPow) wsk.push(w.wskPow + " ha");
+  if (w.wskMiaz) wsk.push(w.wskMiaz + " m³");
+  const box = document.createElement("div");
+  box.className = "oo-karta";
+  box.innerHTML =
+    '<div class="oo-nag">' + esc(w.wies || "?") + ' · wydz. ' + esc(nr) + '</div>' +
+    '<div class="oo-optax">' + (linie.length ? linie.map(l => '<div>' + esc(l) + '</div>').join("")
+      : '<div class="oo-brak">— brak danych —</div>') + '</div>' +
+    (el.length ? '<div class="oo-dane">' + esc(el.join(" · ")) + '</div>' : "") +
+    (wsk.length ? '<div class="oo-dane">' + esc(wsk.join(" · ")) + '</div>' : "") +
+    '<button type="button" class="oo-btn">✎ Edytuj opis</button>';
+  box.querySelector(".oo-btn").addEventListener("click", () => {
+    if (mapa) mapa.closePopup();
+    trybEdycji = w.id;
+    stan = Object.assign(nowyStan(), w);
+    if (!Array.isArray(stan.pjd)) stan.pjd = [];
+    if (!Array.isArray(stan.podsz)) stan.podsz = [];
+    uzupelnijForm(); rysuj(); przelaczTab("form");
+  });
+  L.popup({ maxWidth: 300, className: "optax-pop", autoPan: true })
+    .setLatLng([w.lat, w.lon])
+    .setContent(box)
+    .openOn(mapa);
+}
+async function odswiezPinezki() {
+  if (!mapa) return;
+  if (warstwaWpisow) mapa.removeLayer(warstwaWpisow);
+  warstwaWpisow = L.layerGroup().addTo(mapa);
+  const wszystkie = (await DB.wpisyAll()).filter(w => w.lat != null && w.lon != null && !w.usuniety);
+  /* zielone pole wsi — okrąg obejmujący wszystkie jej pinezki, z nazwą */
+  const grupy = {};
+  for (const w of wszystkie) {
+    const k = w.wies || "?";
+    (grupy[k] = grupy[k] || []).push(w);
+  }
+  const bezt = t => String(t).replace(/[<>&]/g, zn => ({ "<": "\u003C", ">": "\u003E", "&": "\u0026" }[zn]));
+  const dystansM = (lat1, lon1, lat2, lon2) => {
+    const R = 6371000, dLat = (lat2 - lat1) * Math.PI / 180, dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  };
+  for (const wies in grupy) {
+    const g = grupy[wies];
+    const laty = g.map(w => w.lat), lony = g.map(w => w.lon);
+    const cLat = (Math.min(...laty) + Math.max(...laty)) / 2;
+    const cLon = (Math.min(...lony) + Math.max(...lony)) / 2;
+    let r = 0;
+    for (const w of g) r = Math.max(r, dystansM(cLat, cLon, w.lat, w.lon));
+    r = Math.max(r * 1.3, 120); // margines na etykiete i pojedyncze pinezki
+    L.circle([cLat, cLon], {
+      radius: r, color: "#2dd4a7", weight: 1.5, opacity: .65,
+      fillColor: "#2dd4a7", fillOpacity: .12
+    }).addTo(warstwaWpisow)
+      .bindTooltip(bezt(wies), { permanent: true, direction: "center", className: "wies-etykieta" });
+  }
+  for (const w of wszystkie) {
+    const nr = (Array.isArray(w.dzialki) && w.dzialki.length ? w.dzialki.join(", ") : "") || oddzPelne(w) || "—";
+    const tekst = String(nr).replace(/[<>&]/g, zn => ({ "<": "\u003C", ">": "\u003E", "&": "\u0026" }[zn]));
+    const ik = L.divIcon({ className: "pin-wpis",
+      html: '<span class="pin-punkt">📍</span><span class="pin-nr">' + tekst + '</span>',
+      iconSize: [46, 44], iconAnchor: [23, 40] });
+    const m = L.marker([w.lat, w.lon], { icon: ik }).addTo(warstwaWpisow);
+    m.on("click", () => otworzOptaxOkno(w));
+  }
+}
+function satInit() {
+  if (satInitDone || typeof L === "undefined") return;
+  const el = $("#mapa-leaflet");
+  if (!el || el.clientWidth === 0) return;
+  mapa = L.map(el, { zoomControl: true }).setView([52.4226, 21.0558], 15);
+  przelaczTrybMapy("sat", true);
+  const cb = document.getElementById("mapa-drogi");
+  if (cb && cb.checked) przelaczDrogi(true);
+  mapa.on("click", e => {
+    const ikona = L.divIcon({ className: "pin-emoji", html: "📍", iconSize: [30, 30], iconAnchor: [15, 27] });
+    if (pinezka) pinezka.setLatLng(e.latlng);
+    else pinezka = L.marker(e.latlng, { icon: ikona }).addTo(mapa);
+    $("#mapa-info").textContent = e.latlng.lat.toFixed(5) + "° N · " + e.latlng.lng.toFixed(5) + "° E";
+    $("#btn-pin-do-opisu").disabled = false;
+  });
+  satInitDone = true;
+}
+$("#btn-pin-do-opisu").addEventListener("click", () => {
+  if (!pinezka) return;
+  const ll = pinezka.getLatLng();
+  stan.lat = ll.lat; stan.lon = ll.lng; stan.locZrodlo = "mapa";
+  rysuj(); przelaczTab("form");
+  toast("Pinezka wpięta do opisu");
+});
+
+/* ---------- zapis wpisu ---------- */
+async function zapiszWpis(pominWalidacje) {
+  const autor = await DB.metaGet("autor");
+  if (!autor) { toast("Najpierw podaj, kto zbiera dane (kreator)"); return; }
+  if (!stan.wies.trim()) { toast("Podaj obręb / wieś — po tym grupuje się plik Excel"); return; }
+  if (!pominWalidacje) {
+    const braki = brakujacePola();
+    if (braki.length) { pokazOstrzezenieBraki(braki); return; }
+  }
+  /* v1.0.62: numer wydzielenia już zapisany w tej wsi? Pytamy przed zapisem
+     („Zapisz mimo to” pomija i tę kontrolę — to świadoma decyzja użytkownika) */
+  if (!pominWalidacje) {
+    const dupl = await duplikatyDzialek();
+    if (dupl.length && pokazOstrzezenieDuplikaty(dupl)) return;
+  }
+  const wpis = Object.assign({}, stan, {
+    id: trybEdycji || ("w" + Date.now() + "-" + Math.random().toString(36).slice(2, 7)),
+    autor,
+    timestamp: new Date().toISOString(),
+    wersja: 1,
+    status: trybEdycji ? "wkolejce" : "lokalny",
+    poprawionyPoWyslce: undefined
+  });
+  zapamietajOstatnieZFormularza();   /* kody z zapisanego opisu na rządek „ostatnio" */
+  await DB.wpisyPut(wpis);
+  try { localStorage.removeItem(SZKIC); } catch (e) {}   /* zapisane = szkic zbędny */
+  CLOUDS.log("<b>zapisano wpis</b> " + oddzPelne(wpis) + " (" + wpis.wies + ") — " + (trybEdycji ? "poprawka, plik w kolejce" : "lokalny"));
+  toast(trybEdycji ? "Poprawka zapisana — plik wróci do kolejki wysyłki" : "Opis zapisany ✓");
+  trybEdycji = null;
+  SESJA.zapiszZLogiem();
+  const zapisanaWies = wpis.wies;
+  /* formularz od razu ustawiony na tę samą wieś — kolejny opis bez klikania */
+  stan = nowyStan(); stan.wies = zapisanaWies; uzupelnijForm(); rysuj();
+  odswiezOstatni();
+  // wracamy do widoku opisów wsi, do której należy zapisany opis
+  aktywnaWies = zapisanaWies;
+  localStorage.setItem("aktywnaWies", aktywnaWies);
+  odswiezListeWsi();
+  odswiezAppbar();
+  przelaczTab("wykaz");
+  rysujWykaz();
+  zaplanujAutoWysylke();   /* jest zasięg? za chwilę samo poleci do chmury */
+}
+/* v1.0.62: duplikaty numerów wydzieleń — sprawdzane przy zapisie.
+   Porównujemy bez wielkości liter i zerowych odstępów (12A = 12a);
+   edytowany wpis nie koliduje sam ze sobą; usuniętych nie liczymy. */
+async function duplikatyDzialek() {
+  if (!stan.wies || !(stan.dzialki || []).length) return [];
+  const norm = d => String(d || "").trim().toLowerCase();
+  const moje = stan.dzialki.map(norm);
+  const wszystkie = (await DB.wpisyAll()).filter(x => !x.usuniety && x.wies === stan.wies);
+  const wyniki = [];
+  for (const x of wszystkie) {
+    if (trybEdycji && x.id === trybEdycji) continue;
+    for (const d of (x.dzialki || [])) {
+      if (moje.includes(norm(d))) wyniki.push({ nr: d, wpis: x });
+    }
+  }
+  return wyniki;
+}
+/* zwraca true, gdy okno pokazano; false gdy okna nie ma (miks starych
+   plików po aktualizacji w tle) — wtedy zapisujemy bez pytania */
+function pokazOstrzezenieDuplikaty(duplikaty) {
+  const okno = document.getElementById("okno-duplikaty");
+  if (!okno) return false;
+  const lista = document.getElementById("dup-lista");
+  if (lista) lista.innerHTML = duplikaty.map(d =>
+    `<li><b>${d.nr}</b> — zapisany ${new Date(d.wpis.timestamp).toLocaleDateString("pl-PL")}, ` +
+    `${OPTAX.jednaLinia(d.wpis).slice(0, 45)}</li>`).join("");
+  okno.classList.add("on");
+  return true;
+}
+/* przyciski okna duplikatów (warunkowe — lekcja z v1.0.50) */
+(function bindOknaDuplikaty() {
+  const okno = document.getElementById("okno-duplikaty");
+  if (!okno) return;
+  const zamknij = () => okno.classList.remove("on");
+  const b = id => document.getElementById(id);
+  if (b("dup-zamknij")) b("dup-zamknij").addEventListener("click", zamknij);
+  if (b("dup-wroc")) b("dup-wroc").addEventListener("click", zamknij);
+  if (b("dup-zapisz")) b("dup-zapisz").addEventListener("click", () => { zamknij(); zapiszWpis(true); });
+  okno.addEventListener("click", e => { if (e.target === okno) zamknij(); });
+})();
+/* braki w opisie: pola, które powinny być wypełnione
+   (opcjonalne — pjd, drugi gatunek, elementy taksacyjne, wskazania —
+   oraz lokalizacja NIE są sprawdzane; wieś blokuje zapis osobno) */
+function brakujacePola() {
+  const braki = [];
+  if (!stan.dzialki.length) braki.push("numer wydzielenia");
+  if (!stan.siedlisko) braki.push("siedlisko");
+  if (!stan.panujacy) braki.push("gatunek panujący");
+  if (!stan.zwarcie) braki.push("zwarcie");
+  if (!stan.podsz.length) braki.push("podszyt");
+  return braki;
+}
+function pokazOstrzezenieBraki(braki) {
+  /* zabezpieczenie: przy aktualizacji w tle service worker może podać
+     starszy index.html i okno braków jeszcze nie istnieje — wtedy po prostu
+     nie pokazujemy pytania (zapis pójdzie bez ostrzeżenia) */
+  const okno = $("#okno-braki");
+  if (!okno || !$("#braki-lista")) return;
+  $("#braki-lista").innerHTML = braki.map(b => "<li>" + b + "</li>").join("");
+  okno.classList.add("on");
+}
+if (document.getElementById("okno-braki")) {
+  $("#braki-zamknij").addEventListener("click", () => $("#okno-braki").classList.remove("on"));
+  $("#braki-wroc").addEventListener("click", () => $("#okno-braki").classList.remove("on"));
+  $("#okno-braki").addEventListener("click", e => {
+    if (e.target.id === "okno-braki") $("#okno-braki").classList.remove("on");
+  });
+  $("#braki-zapisz").addEventListener("click", () => {
+    $("#okno-braki").classList.remove("on");
+    zapiszWpis(true);
+  });
+}
+$("#btn-zapisz").addEventListener("click", () => zapiszWpis(false));
+
+function uzupelnijForm() {
+  autoVals = {}; reczne = {}; // nowy/ładowany wpis — autouzupełnianie od zera
+  if (stan.siedlisko === "OJ") stan.siedlisko = "OlJ"; // stare wpisy
+  $("#in-wies").value = stan.wies || "";
+  if (typeof stan.dzialki === "string")
+    stan.dzialki = stan.dzialki.split(",").map(x => x.replace(/\s+/g, "")).filter(Boolean);
+  $("#in-dzialka").value = "";
+  renderDzialki();
+  $("#e-wys").value = stan.elWys || ""; $("#e-pier").value = stan.elPier || "";
+  $("#e-bon").value = stan.elBon || ""; $("#e-zad").value = stan.elZad || "";
+  $("#e-miaz").value = stan.elMiaz || "";
+  $("#w-typ").value = stan.wskTyp || ""; $("#w-pow").value = stan.wskPow || "";
+  $("#w-miaz").value = stan.wskMiaz || "";
+  renderChips();
+}
+
+/* ---------- kopiowanie wpisu + okienko „ostatnio wpisane" ---------- */
+/* kopia wpisu do edycji: bez numeru wydzielenia i lokalizacji (to są rzeczy
+   nowego wydzielenia), cała reszta pól zostaje */
+function kopiujWpis(w) {
+  if (!w) return;
+  const kopia = Object.assign(nowyStan(), w, {
+    dzialki: [], lat: null, lon: null, locZrodlo: null,
+    wersja: 1, status: "lokalny",
+    ostatniaWysylka: undefined, poprawionyPoWyslce: undefined
+  });
+  delete kopia.id; delete kopia.timestamp;
+  trybEdycji = null;
+  if (w.wies) { aktywnaWies = w.wies; try { localStorage.setItem("aktywnaWies", aktywnaWies); } catch (e) {} }
+  stan = kopia;
+  uzupelnijForm(); rysuj(); przelaczTab("form");
+  toast("Skopiowano opis — uzupełnij numer wydzielenia i zapisz", 5000);
+}
+
+let ostatniWpis = null;   // ostatnio zapisany wpis (do podglądu i skopiowania)
+
+async function odswiezOstatni() {
+  const box = $("#ostatni-box"); if (!box) return;
+  try {
+    const wszystkie = (await DB.wpisyAll()).filter(x => !x.usuniety && x.id !== trybEdycji);
+    const poCzasie = arr => arr.slice().sort((a, b) =>
+      String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
+    let kand = null;
+    if (stan.wies) kand = poCzasie(wszystkie.filter(x => x.wies === stan.wies))[0];
+    if (!kand) kand = poCzasie(wszystkie)[0];
+    if (!kand) { ostatniWpis = null; box.hidden = true; return; }
+    ostatniWpis = kand;
+    box.hidden = false;
+    const t = $("#ob-tytul");
+    if (t) t.textContent = identyfikatorWpisu(kand) + (kand.wies ? " · " + kand.wies : "");
+    const p = $("#ob-podglad");
+    if (p) p.textContent = OPTAX.linie(kand).join("\n") || "—";
+  } catch (e) { ostatniWpis = null; box.hidden = true; }
+}
+{
+  const bk = $("#btn-kopiuj-ostatni");
+  if (bk) bk.addEventListener("click", () => {
+    if (!ostatniWpis) { toast("Brak wcześniejszego wpisu do skopiowania"); return; }
+    kopiujWpis(ostatniWpis);
+  });
+}
+
+/* ---------- wykaz ---------- */
+function identyfikatorWpisu(x) {
+  const d = Array.isArray(x.dzialki) ? x.dzialki.join(", ") : (x.dzialki || "");
+  const o = oddzPelne(x);
+  return o && d ? o + " · " + d : (o || d || "—");
+}
+async function rysujWykaz() {
+  const wsie = await DB.wpisyWsie();
+  const wszystkie = (await DB.wpisyAll()).filter(x => !x.usuniety);   /* usuniętych nie pokazujemy */
+  const box = $("#wykaz-lista");
+  /* szukajka: filtr po numerze wydzielenia, wsi i opisie drzewostanu */
+  const szEl = document.getElementById("wykaz-szukaj");
+  const q = (szEl ? szEl.value : "").trim().toLowerCase();
+  const pasuje = x => !q || ((x.wies || "") + " " + identyfikatorWpisu(x) + " " +
+    OPTAX.jednaLinia(x)).toLowerCase().includes(q);
+  const naglowek = aktywnaWies ? '<span class="powrot-link" id="powrot-wsie">← wszystkie wsie</span>' : "";
+  if (aktywnaWies) {
+    const wpisy = wszystkie.filter(x => x.wies === aktywnaWies && pasuje(x));
+    box.innerHTML = naglowek + '<div class="wies-naglowek">' + aktywnaWies + ' · ' + wpisy.length + '</div>' +
+      (wpisy.length ? wpisy.map(x => `<div class="row-item" data-id="${x.id}">
+        <div class="ri-oddz">${identyfikatorWpisu(x)}</div>
+        <div class="ri-main"><b>${OPTAX.jednaLinia(x).slice(0, 60)}</b><small>${x.timestamp.slice(0, 10)} · v${x.wersja || 1}</small></div>
+        ${x.status === "wyslany" ? '<span class="st ok">wysłany</span>' : '<span class="st local">lokalny</span>'}
+        <button class="ri-dup" data-dup="${x.id}" title="zduplikuj (podobne wydzielenie)">⧉</button>
+        <button class="ri-del" data-del="${x.id}" title="usuń">×</button>
+      </div>`).join("") : '<div class="wies-naglowek" style="text-align:center;opacity:.6">— brak wyników —</div>');
+  } else if (!wsie.length) {
+    box.innerHTML = '<div class="wies-naglowek" style="text-align:center;margin-top:30vh">— jeszcze nic nie zebrane —</div>';
+  } else {
+    box.innerHTML = wsie.map(w => {
+      const wpisy = wszystkie.filter(x => x.wies === w && pasuje(x));
+      if (!wpisy.length) return "";
+      return `<div class="wies-naglowek">${w} · ${wpisy.length}</div>` +
+        wpisy.map(x => `<div class="row-item" data-id="${x.id}">
+          <div class="ri-oddz">${identyfikatorWpisu(x)}</div>
+          <div class="ri-main"><b>${OPTAX.jednaLinia(x).slice(0, 60)}</b><small>${x.timestamp.slice(0, 10)} · v${x.wersja || 1}</small></div>
+          ${x.status === "wyslany" ? '<span class="st ok">wysłany</span>' : '<span class="st local">lokalny</span>'}
+          <button class="ri-dup" data-dup="${x.id}" title="zduplikuj (podobne wydzielenie)">⧉</button>
+          <button class="ri-del" data-del="${x.id}" title="usuń">×</button>
+        </div>`).join("");
+    }).join("") || '<div class="wies-naglowek" style="text-align:center;opacity:.6">— brak wyników —</div>';
+  }
+  odswiezAppbar();
+}
+$("#wykaz-lista").addEventListener("click", async e => {
+  if (e.target.closest("#powrot-wsie")) { przelaczTab("wsie"); return; }
+  const del = e.target.closest("[data-del]");
+  if (del) {
+    e.stopPropagation();
+    const w = (await DB.wpisyAll()).find(x => x.id === del.dataset.del);
+    if (!w) return;
+    /* potwierdzenie (v1.0.58); gdy okna nie ma (miks starych plików po
+       aktualizacji w tle) — kasujemy od razu, jak kiedyś */
+    const okno = document.getElementById("okno-usun");
+    if (!okno) { await oznaczUsuniety(w.id); toast("Wpis usunięty"); return; }
+    window.__doUsuniecia = w.id;
+    const tresc = document.getElementById("usun-tresc");
+    if (tresc) tresc.textContent = identyfikatorWpisu(w) + " — " +
+      OPTAX.jednaLinia(w).slice(0, 60) + " (" + w.wies + ")";
+    okno.classList.add("on");
+    return;
+  }
+  /* duplikowanie: kopia wpisu do edycji — bez numeru wydzielenia
+     i lokalizacji (to są rzeczy nowego wydzielenia), reszta pól zostaje */
+  const dup = e.target.closest("[data-dup]");
+  if (dup) {
+    e.stopPropagation();
+    const w = (await DB.wpisyAll()).find(x => x.id === dup.dataset.dup);
+    if (!w) return;
+    kopiujWpis(w);
+    return;
+  }
+  const item = e.target.closest(".row-item");
+  if (item) {
+    const w = (await DB.wpisyAll()).find(x => x.id === item.dataset.id);
+    if (!w) return;
+    trybEdycji = w.id;
+    stan = Object.assign(nowyStan(), w);
+    if (!Array.isArray(stan.pjd)) stan.pjd = [];
+    if (!Array.isArray(stan.podsz)) stan.podsz = [];
+    uzupelnijForm(); rysuj();
+    przelaczTab("form");
+  }
+});
+$("#btn-nowy").addEventListener("click", () => { trybEdycji = null; stan = nowyStan(); stan.wies = aktywnaWies || ""; uzupelnijForm(); rysuj(); przelaczTab("form"); });
+$("#ab-obreb").addEventListener("click", () => przelaczTab("wsie"));
+
+/* ---------- aktualizacja APK (działa tylko w aplikacji Android) ---------- */
+function apkWersja() {
+  return czyNatywnie()
+    ? String(typeof WERSJA_APLIKACJI !== "undefined" ? WERSJA_APLIKACJI : "").replace(/^v/, "")
+    : (new URLSearchParams(location.search).get("apk_wersja") || "");
+}
+const APK_WERSJA = apkWersja();
+function porownajWersje(a, b) {
+  const A = String(a).split(".").map(Number), B = String(b).split(".").map(Number);
+  for (let i = 0; i < Math.max(A.length, B.length); i++) {
+    const d = (A[i] || 0) - (B[i] || 0);
+    if (d) return d > 0 ? 1 : -1;
+  }
+  return 0;
+}
+function banerAktualizacji(wersja, url) {
+  if (document.getElementById("baner-apk")) return;
+  const el = document.createElement("div");
+  el.id = "baner-apk";
+  el.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;background:#3a5c33;color:#fff;" +
+    "padding:10px 14px;display:flex;gap:12px;align-items:center;justify-content:center;font-size:14px;" +
+    "box-shadow:0 2px 8px rgba(0,0,0,.35)";
+  const t = document.createElement("span");
+  t.textContent = "↻ Nowa wersja aplikacji: " + wersja;
+  const a = document.createElement("a");
+  a.href = url; a.target = "_blank"; a.rel = "noopener";
+  a.textContent = "Pobierz aktualizację";
+  if (czyNatywnie()) a.addEventListener("click", e => {
+    e.preventDefault();
+    pobierzIZainstalujApk(url, wersja);
+  });
+  a.style.cssText = "color:#fff;font-weight:700;text-decoration:underline;white-space:nowrap";
+  const x = document.createElement("button");
+  x.textContent = "×"; x.title = "nie teraz";
+  x.style.cssText = "background:none;border:0;color:#fff;font-size:18px;cursor:pointer;padding:0 4px";
+  x.onclick = () => { localStorage.setItem("apk_omin", wersja); el.remove(); };
+  el.append(t, a, x);
+  document.body.appendChild(el);
+}
+async function sprawdzAktualizacjeApk() {
+  const mojaApk = apkWersja();
+  if (!mojaApk) return; // zwykła przeglądarka — nic do sprawdzania
+  try {
+    // zapamiętana dostępna wersja pokazuje baner od razu, bez odpytywania API
+    const pamietana = localStorage.getItem("apk_dostepna") || "";
+    if (pamietana && porownajWersje(pamietana, mojaApk) > 0 &&
+        pamietana !== localStorage.getItem("apk_omin")) {
+      const u = localStorage.getItem("apk_url") || "https://github.com/wskakuj/forestly-go/releases/latest";
+      banerAktualizacji(pamietana, u);
+    }
+    /* v1.0.61: sprawdzamy PRZY KAŻDYM otwarciu aplikacji (wcześniej
+       najwyżej raz na 6 h); mini-ogranicznik 60 s chroni tylko przed
+       przypadkowym zdwojeniem w tej samej minucie. Jedno zapytanie na
+       otwarcie spokojnie mieści się w limicie GitHuba (60/h). */
+    const teraz = Date.now(), ostatni = +(localStorage.getItem("apk_check") || 0);
+    if (teraz - ostatni < 60 * 1000) return;
+    localStorage.setItem("apk_check", String(teraz));
+    const r = await fetch("https://api.github.com/repos/wskakuj/forestly-go/releases/latest");
+    if (!r.ok) return;
+    const rel = await r.json();
+    const najnowsza = (rel.tag_name || "").replace(/^v/, "");
+    if (!najnowsza || porownajWersje(najnowsza, mojaApk) <= 0) {
+      localStorage.removeItem("apk_dostepna"); return;
+    }
+    const apk = (rel.assets || []).find(a => a.name === "ForestlyGO.apk");
+    const url = apk ? apk.browser_download_url : (rel.html_url || "");
+    localStorage.setItem("apk_dostepna", najnowsza);
+    localStorage.setItem("apk_url", url);
+    if (najnowsza !== localStorage.getItem("apk_omin")) banerAktualizacji(najnowsza, url);
+  } catch (e) { /* offline albo limit GitHuba — po cichu */ }
+}
+
+/* ---------- sync ---------- */
+async function rysujSync() {
+  const autor = await DB.metaGet("autor");
+  $("#s-autor").textContent = autor || "—";
+  const dir = await DB.metaGet("folder");
+  $("#s-folder").textContent = dir ? (dir.nazwa || dir.name) : "nie wybrano";
+  $("#btn-folder").textContent = dir ? "Zmień folder" : "Wybierz folder";
+  $("#btn-folder").style.display = "";   /* zawsze widoczny — klik sam wyjaśnia ograniczenia */
+  $("#s-wersja").textContent = (typeof WERSJA_APLIKACJI !== "undefined" ? WERSJA_APLIKACJI : "?");
+  const sTryb = $("#s-tryb");
+  if (sTryb) {
+    /* APK serwuje stronę z korzenia (np. /index.html); strona w przeglądarce
+       zawsze ma w ścieżce /forestly-go/ — po tym rozpoznajemy kontekst
+       nawet wtedy, gdy mostek nie odpowiedział */
+    const naStronie = location.pathname.indexOf("/forestly-go") === 0;
+    const trybTekst = czyNatywnie()
+      ? "APK (natywna)"
+      : (naStronie ? "przeglądarka / PWA" : "APK — brak mostka!");
+    sTryb.textContent = trybTekst;
+    let nota = document.getElementById("s-tryb-nota");
+    if (!czyNatywnie() && MOBILNY) {
+      if (!nota) {
+        nota = document.createElement("div");
+        nota.id = "s-tryb-nota";
+        nota.className = "s-notka";
+        sTryb.parentElement.insertBefore(nota, sTryb.nextSibling);
+      }
+      nota.textContent = naStronie
+        ? "Ten skrót strony działa w przeglądarce — dlatego folderu nie da się wskazać. " +
+          "Zamknij i otwórz ikonę „FORESTLY GO” z listy aplikacji: to zainstalowana aplikacja, " +
+          "w niej wybór folderu i aktualizacje działają w aplikacji."
+        : "Wygląda na to, że działa aplikacja natywna, ale jej mostek nie odpowiedział — " +
+          "napisz mi o tym, poprowadzę przez naprawę.";
+    } else if (nota) nota.remove();
+  }
+  const wsie = await DB.wpisyWsie();
+  const wszystkie = await DB.wpisyAll();
+  odswiezBackupKarte();
+  const ncC = await DB.metaGet("nextcloud") || {};
+  const pcC = await DB.metaGet("pcloud") || {};
+  const gdC = await DB.metaGet("gdrive") || {};
+  $("#s-chmury-status").innerHTML =
+    '<div class="chm-w">' + (ncC.url && ncC.pass ? '<span class="chm-tak">✓</span>' : '<span class="chm-nie">✗</span>') + ' Nextcloud</div>' +
+    '<div class="chm-w">' + (pcC.token ? '<span class="chm-tak">✓</span>' : '<span class="chm-nie">✗</span>') + ' pCloud</div>' +
+    '<div class="chm-w">' + (gdC.refreshToken ? '<span class="chm-tak">✓</span>' : '<span class="chm-nie">✗</span>') + ' Dysk Google</div>';
+  $("#s-pliki").innerHTML = wsie.length ? wsie.map(w => {
+    const ile = wszystkie.filter(x => x.wies === w && !x.usuniety).length;   /* usuniętych nie liczmy */
+    const nazwa = XLSXIO.nazwaPliku(w, autor || "x");
+    return `<div class="s-plik">
+      <div class="ri-main"><b>${nazwa}</b><small>${ile} wpisów</small></div>
+    </div>`;
+  }).join("") : '<div class="s-notka">Brak wpisów — zacznij od zakładki „Nowy opis”.</div>';
+  odswiezAppbar();
+}
+async function wczytajKonfigChmur() {
+  const nc = await DB.metaGet("nextcloud") || {};
+  $("#nc-url").value = nc.url || "https://agcezar.duckdns.org";
+  $("#nc-user").value = nc.user || "retardino";
+  $("#nc-pass").value = nc.pass || "";
+  $("#nc-path").value = (nc.sciezka && nc.sciezka !== "Taksator") ? nc.sciezka : "Dysk QNAP WD/FORESTLY BAZA";
+  const pc = await DB.metaGet("pcloud") || {};
+  /* #pc-token nie istnieje od porządków w Sync (v1.0.20) — ten zapis
+     wywalał całe wczytywanie konfiguracji chmur przy starcie */
+  const pcToken = $("#pc-token"); if (pcToken) pcToken.value = pc.token || "";
+  /* e-mail wypełniamy z zapisanej konfiguracji — HASŁA nie trzymamy
+     (pole zostaje puste do ponownego logowania; zalogowanie trwa 2 lata) */
+  const pcEmail = $("#pc-email"); if (pcEmail) pcEmail.value = pc.email || "";
+  $("#pc-path").value = pc.path || "/Taksator";
+  const pcStat = $("#pc-status");
+  if (pcStat) pcStat.innerHTML = pc.token
+    ? '<span class="chm-tak">✓</span> zalogowany jako <b>' + (pc.email || "?") + '</b> — serwer ' +
+      (pc.host === "eapi.pcloud.com" ? "europejski (eapi)" : "amerykański (api)") +
+      ', folder: ' + (pc.path || "/Taksator")
+    : 'niezalogowany — wpisz e-mail i hasło pCloud i dotknij „Zaloguj”';
+  const gd = await DB.metaGet("gdrive") || {};
+  $("#gd-folder").value = gd.folder || "FORESTLY GO";
+}
+/* instalacja jako aplikacja: Chrome podpowiada, łapiemy i pokazujemy przycisk */
+let odroczonaInstalacja = null;
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault();
+  odroczonaInstalacja = e;
+  const btn = document.getElementById("btn-instaluj");
+  if (btn) btn.style.display = "inline-block";
+});
+window.addEventListener("appinstalled", () => {
+  const btn = document.getElementById("btn-instaluj");
+  if (btn) btn.style.display = "none";
+  toast("Forestly GO zainstalowane ✓");
+});
+document.addEventListener("click", async e => {
+  if (e.target.closest("#btn-instaluj") && odroczonaInstalacja) {
+    odroczonaInstalacja.prompt();
+    const w = await odroczonaInstalacja.userChoice;
+    if (w && w.outcome === "accepted") CLOUDS.log("<b>zainstalowano</b> aplikację na urządzeniu");
+    odroczonaInstalacja = null;
+  }
+});
+$("#btn-folder").addEventListener("click", async () => {
+  try {
+    const dir = await wybierzFolder();
+    if (!dir) return;   /* PWA na telefonie — komunikat już pokazany wyżej */
+    await DB.metaSet("folder", dir);
+    toast("Folder zapisany: " + (dir.nazwa || dir.name));
+    rysujSync();
+  } catch (e) {
+    /* w APK podajemy powód, żeby wiedzieć co naprawić */
+    toast("Nie udało się wybrać folderu" +
+      (e && e.message ? " (" + String(e.message).slice(0, 80) + ")" : ""));
+  }
+});
+$("#btn-nc-save").addEventListener("click", async () => {
+  await DB.metaSet("nextcloud", { url: $("#nc-url").value.trim(), user: $("#nc-user").value.trim(),
+    pass: $("#nc-pass").value, sciezka: $("#nc-path").value.trim() });
+  toast("Nextcloud zapisany"); CLOUDS.log("<b>zapisano</b> konfigurację Nextcloud" +
+    ($("#nc-path").value.trim() ? " — folder: " + $("#nc-path").value.trim() : ""));
+  rysujSync(); resetujStatusPolaczenia();
+  sprobujBackupZChmury();
+});
+$("#btn-pc-zaloguj").addEventListener("click", async () => {
+  try {
+    const r = await CLOUDS.pcloudZaloguj($("#pc-email").value.trim(), $("#pc-pass").value,
+      $("#pc-kod") ? $("#pc-kod").value : "");
+    await DB.metaSet("pcloud", { token: r.token, email: r.email, host: r.host,
+      path: $("#pc-path").value.trim() || "/FORESTLY BAZA" });
+    $("#pc-pass").value = "";
+    if ($("#pc-kod")) $("#pc-kod").value = "";
+    toast("Zalogowano do pCloud ✓ (" + r.email + ")");
+    CLOUDS.log("<b>zalogowano</b> do pCloud — " + r.email +
+      ", folder: " + ($("#pc-path").value.trim() || "/FORESTLY BAZA"));
+    rysujSync(); resetujStatusPolaczenia();
+    sprobujBackupZChmury();
+  } catch (e) {
+    toast(String(e.message || e), e.potrzebujeKodu ? 9000 : undefined);
+    /* pCloud pyta o kod weryfikacyjny — nasuwamy pole i podświetlamy */
+    if (e.potrzebujeKodu) {
+      const pole = $("#pc-kod");
+      if (pole) { pole.focus(); pole.style.borderColor = "var(--orange)"; }
+    }
+    /* szczegóły (po jakim serwerze, jaki kod błędu) — do logu Sync,
+       żeby przy następnym podejściu wiedzieć dokładnie co się stało */
+    CLOUDS.log("pCloud <b>logowanie nie wyszło</b>: " + (e.message || e) +
+      (e.szczegoly && e.szczegoly.length ? " — próby: " + e.szczegoly.join("; ") : ""));
+  }
+});
+$("#btn-pc-save").addEventListener("click", async () => {
+  const stara = await DB.metaGet("pcloud") || {};
+  if (!stara.token) { toast("Najpierw zaloguj się do pCloud"); return; }
+  await DB.metaSet("pcloud", { token: stara.token, email: stara.email, host: stara.host,
+    path: $("#pc-path").value.trim() || "/FORESTLY BAZA" });
+  toast("Folder zapisany"); CLOUDS.log("<b>zapisano</b> folder pCloud: " +
+    ($("#pc-path").value.trim() || "/FORESTLY BAZA"));
+  rysujSync(); resetujStatusPolaczenia();
+  sprobujBackupZChmury();
+});
+/* Dysk Google: logowanie kontem użytkownika (OAuth + PKCE) */
+/* Identyfikator klienta aplikacji ForestlyGO w Google Cloud — wpisany na stałe,
+   pole w ustawieniach wypełnia się samo (można nadpisać własnym). */
+const GD_CLIENT_ID = "1088294990937-jdpqjfio6mqfr3qf47t6iinrpq26camo.apps.googleusercontent.com";
+
+/* Powrót z logowania Google: strona oauth.html otwiera forestlygo://oauth?code=...
+   — Android przywraca aplikację, kod wymieniamy automatycznie, bez wklejania. */
+if (window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.App) {
+  Capacitor.Plugins.App.addListener("appUrlOpen", async (dane) => {
+    try {
+      const url = new URL(dane.url);
+      const kod = url.searchParams.get("code");
+      if (kod) {
+        toast("Wróciłem z logowania Google — łączę…");
+        await gdPolaczKod(kod);
+      }
+    } catch (e) { /* to nie był link logowania — ignorujemy */ }
+  });
+}
+
+$("#btn-gd-login").addEventListener("click", async () => {
+  const clientId = GD_CLIENT_ID;
+  try {
+    const url = await CLOUDS.gdriveLoginUrl(clientId);
+    window.open(url, "_blank");
+    toast("Otworzyłem Google — zaloguj się, aplikacja wróci sama");
+  } catch (e) { toast("Nie mogę otworzyć logowania: " + e.message); }
+});
+async function gdPolaczKod(kod) {
+  toast("Łączę z Google…");
+  try {
+    const r = await CLOUDS.gdriveDolaczKod(kod);
+    await DB.metaSet("gdrive", { clientId: r.clientId, refreshToken: r.refreshToken,
+      folder: $("#gd-folder").value.trim() || "FORESTLY GO" });
+    rysujSync(); resetujStatusPolaczenia();   // ptaszek na zielono od razu
+    toast("Połączono z Dyskiem Google ✓");
+    CLOUDS.log("<b>Dysk Google</b> — zalogowano kontem Google");
+    /* od razu sprawdzamy, czy wszystko działa — user widzi efekt bez klikania */
+    try {
+      const t = await CLOUDS.gdriveTest({ clientId: r.clientId, refreshToken: r.refreshToken,
+        folder: $("#gd-folder").value.trim() || "FORESTLY GO" });
+      toast("Dysk Google: zalogowany ✓ — folder: " + t.folder);
+      CLOUDS.log("<b>Dysk Google OK</b> — folder: " + t.folder);
+    } catch (e) { toast("Połączono, ale test: " + e.message); }
+    sprobujBackupZChmury();
+    return true;
+  } catch (e) { toast(e.message); CLOUDS.log("Google błąd: " + e.message); return false; }
+}
+
+$("#btn-gd-save").addEventListener("click", async () => {
+  const stary = await DB.metaGet("gdrive") || {};
+  await DB.metaSet("gdrive", { clientId: stary.clientId || GD_CLIENT_ID,
+    refreshToken: stary.refreshToken, folder: $("#gd-folder").value.trim() || "FORESTLY GO" });
+  toast("Dysk Google zapisany"); CLOUDS.log("<b>zapisano</b> konfigurację Dysku Google — folder: " +
+    ($("#gd-folder").value.trim() || "FORESTLY GO"));
+  rysujSync(); resetujStatusPolaczenia();
+});
+$("#btn-nc-test").addEventListener("click", async () => {
+  const cfg = { url: $("#nc-url").value.trim(), user: $("#nc-user").value.trim(), pass: $("#nc-pass").value };
+  if (!cfg.url || !cfg.user || !cfg.pass) { toast("Wypełnij adres, login i hasło"); return; }
+  toast("Łączę z Nextcloud…");
+  try { await CLOUDS.nextcloudTest(cfg); toast("Nextcloud: połączenie OK ✓"); CLOUDS.log("<b>Nextcloud OK</b> — " + cfg.user + "@" + cfg.url); }
+  catch (e) { toast(e.message); CLOUDS.log("Nextcloud błąd: " + e.message); }
+});
+$("#btn-pc-test").addEventListener("click", async () => {
+  const cfg = { token: $("#pc-token").value.trim() };
+  if (!cfg.token) { toast("Wklej token pCloud"); return; }
+  toast("Łączę z pCloud…");
+  try { const r = await CLOUDS.pcloudTest(cfg); toast("pCloud: OK ✓ (" + (r.email || "konto") + ")"); CLOUDS.log("<b>pCloud OK</b> — " + (r.email || "")); }
+  catch (e) { toast(e.message); CLOUDS.log("pCloud błąd: " + e.message); }
+});
+$("#btn-gd-test").addEventListener("click", async () => {
+  const stary = await DB.metaGet("gdrive") || {};
+  const cfg = { clientId: stary.clientId || GD_CLIENT_ID,
+    refreshToken: stary.refreshToken, folder: $("#gd-folder").value.trim() || "FORESTLY GO" };
+  if (!cfg.clientId || !cfg.refreshToken) { toast("Najpierw zaloguj się z Google"); return; }
+  toast("Łączę z Dyskiem Google…");
+  try {
+    const r = await CLOUDS.gdriveTest(cfg);
+    toast("Dysk Google: OK ✓ — folder: " + r.folder);
+    CLOUDS.log("<b>Dysk Google OK</b> — folder: " + r.folder);
+  } catch (e) { toast(e.message); CLOUDS.log("Google błąd: " + e.message); }
+});
+async function odswiezBackupKarte() {
+  const dir = await DB.metaGet("folder");
+  let dane = await SESJA.odczytaj(dir).catch(() => null);
+  let zrodlo = dir ? "folder" : "";
+  if (!dane) { dane = await SESJA.odczytajOpfs(); zrodlo = dane ? "pamięć appki" : ""; }
+  $("#s-backup").textContent = dane
+    ? String(dane.zapisano || "").slice(0, 16).replace("T", " ") + " · " + (dane.wpisy || []).length + " wpisów · " + zrodlo
+    : (dir ? "brak pliku w folderze" : "brak — zapisz teraz");
+}
+$("#btn-backup-teraz").addEventListener("click", async () => {
+  const r = await SESJA.zapiszZLogiem();
+  toast(r.ok ? "Backup zapisany ✓ (" + r.ile + " wpisów)" : "Najpierw wybierz folder (Urządzenie)");
+  odswiezBackupKarte();
+});
+if (!window.showDirectoryPicker) {
+  $("#btn-backup-plik").style.display = "inline-block";
+  $("#btn-backup-teraz").textContent = "Zapisz teraz (pamięć appki)";
+}
+$("#btn-backup-plik").addEventListener("click", async () => {
+  const ok = await SESJA.pobierz();
+  if (!ok) toast("Najpierw podaj leśnika (kreator)");
+});
+/* ---------- v1.0.63: backup sesji w chmurze + przekazanie dalej ---------- */
+async function przywrocZChmury() {
+  toast("Szukam backupu w chmurze…");
+  try {
+    const r = await CLOUDS.pobierzBackup();
+    if (!r.ok) { toast(r.powod); return null; }
+    const w = await SESJA.wprowadzDane(r.dane);
+    toast("Sesja przywrócona z chmury: " + w.ile + " wpisów ✓ (jako " + w.autor + ")");
+    CLOUDS.log("<b>przywrócono sesję z " + r.chmura + "</b> — " + w.ile + " wpisów, autor: " + w.autor);
+    rysujWykaz(); odswiezAppbar(); odswiezBackupKarte();
+    return w;
+  } catch (e) { toast("Pobieranie backupu: " + (e && e.message || e)); return null; }
+}
+$("#btn-backup-chmura").addEventListener("click", async () => {
+  try {
+    const r = await SESJA.wyslijDoChmury();
+    if (r.ok) {
+      toast("Backup wysłany do chmury ✓ (" + r.ile + " wpisów)");
+      CLOUDS.log("<b>backup sesji</b> → chmura — " + r.ile + " wpisów");
+      odswiezBackupKarte();
+    } else toast(r.powod || "Nie udało się wysłać backupu");
+  } catch (e) { toast("Backup do chmury: " + (e && e.message || e)); }
+});
+$("#btn-backup-z-chmury").addEventListener("click", () => { przywrocZChmury(); });
+/* „Przekaż dalej”: plik backupu przez udostępnienie (WhatsApp/Bluetooth/pendrive) */
+$("#btn-przekaz").addEventListener("click", async () => {
+  const blob = await SESJA.blobSesji();
+  if (!blob) { toast("Najpierw podaj leśnika (kreator)"); return; }
+  const autor = (await DB.metaGet("autor")) || "lesnik";
+  const plik = new File([blob], "ForestlyGO_sesja_" + autor.replace(/[\\/:*?"<>|]/g, "_") + ".json",
+    { type: "application/json" });
+  if (navigator.canShare && navigator.canShare({ files: [plik] })) {
+    try {
+      await navigator.share({ files: [plik], title: "FORESTLY GO — backup sesji" });
+      CLOUDS.log("<b>przekazano sesję dalej</b> (" + blob.size + " B)");
+      return;
+    } catch (e) { if (e && e.name === "AbortError") return; }
+  }
+  const ok = await SESJA.pobierz();
+  if (ok) toast("Backup zapisany jako plik — prześlij go drugiemu leśnikowi");
+});
+/* okno „w chmurze jest backup sesji” */
+(function bindOknaBackup() {
+  const okno = document.getElementById("okno-backup-chmura");
+  if (!okno) return;
+  const zamknij = () => okno.classList.remove("on");
+  const b = id => document.getElementById(id);
+  if (b("bc-zamknij")) b("bc-zamknij").addEventListener("click", zamknij);
+  if (b("bc-pomin")) b("bc-pomin").addEventListener("click", zamknij);
+  if (b("bc-pobierz")) b("bc-pobierz").addEventListener("click", async () => {
+    zamknij();
+    const w = await przywrocZChmury();
+    if (w) await odswiezStart();
+  });
+  okno.addEventListener("click", e => { if (e.target === okno) zamknij(); });
+})();
+/* raz na sesję: leśnik wpisany, nie ma żadnych wpisów, a w chmurze leży
+   backup — proponujemy pobranie (scenariusz: przejęcie pracy po kimś,
+   nowy telefon, reinstalacja). Wywoływane po starcie i po skonfigurowaniu
+   chmury, żeby nie przegapić momentu. */
+let backupChmuraSprawdzono = false;
+async function sprobujBackupZChmury() {
+  if (backupChmuraSprawdzono) return;
+  const autor = await DB.metaGet("autor");
+  if (!autor) return;
+  const wpisy = await DB.wpisyAll();
+  if (wpisy.length) return;   /* mamy własne dane — automatycznie nie mieszamy */
+  const [pc, gd, nc] = await Promise.all(
+    [DB.metaGet("pcloud"), DB.metaGet("gdrive"), DB.metaGet("nextcloud")]);
+  if (!((pc && pc.token) || (gd && gd.refreshToken) || (nc && nc.url))) return;
+  backupChmuraSprawdzono = true;
+  try {
+    const r = await CLOUDS.pobierzBackup();
+    if (!r.ok) return;
+    const d = r.dane;
+    const kiedy = String(d.zapisano || "").slice(0, 16).replace("T", " ");
+    const tresc = document.getElementById("bc-tresc");
+    if (tresc) tresc.innerHTML = "W chmurze (" + r.chmura + ") jest backup sesji leśnika " +
+      "<b>" + d.autor + "</b>: <b>" + (d.wpisy || []).length + "</b> wpisów, zapisany " + kiedy +
+      ".<br>Pobrać i pracować dalej jako <b>" + d.autor + "</b>?";
+    const okno = document.getElementById("okno-backup-chmura");
+    if (okno) okno.classList.add("on");
+  } catch (e) { /* chmura nieosiągalna — cicho, można pobrać przyciskiem */ }
+}
+/* jedno przywracanie: na komputerze wskazujesz folder, na telefonie
+   od razu plik backupu (Android nie umie wskazywać folderów) */
+$("#btn-backup-przywroc").addEventListener("click", async () => {
+  if (window.showDirectoryPicker || jestFolderNatywny()) {
+    try {
+      const dir = await wybierzFolder();
+      await DB.metaSet("folder", dir);
+      const r = await SESJA.przywroc(dir);
+      if (!r.ok) { toast("W tym folderze nie ma pliku backupu"); return; }
+      toast("Sesja przywrócona: " + r.ile + " wpisów ✓");
+      rysujWykaz(); odswiezAppbar();
+    } catch (e) { toast("Nie udało się wybrać folderu"); }
+  } else {
+    window.__celPrzywrocenia = "sync";
+    $("#plik-backup").click();
+  }
+});
+$("#plik-backup").addEventListener("change", async e => {
+  const plik = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (!plik) return;
+  const r = await SESJA.przywrocZPliku(plik);
+  if (!r.ok) { toast(r.powod); return; }
+  toast("Sesja przywrócona: " + r.ile + " wpisów ✓");
+  CLOUDS.log("<b>przywrócono sesję</b> z pliku backupu — " + r.ile + " wpisów");
+  if (window.__celPrzywrocenia === "onboarding") {
+    window.__celPrzywrocenia = null;
+    await zakonczOnboarding(false);
+    await odswiezStart();
+  } else {
+    rysujWykaz(); odswiezAppbar();
+  }
+});
+window.addEventListener("pagehide", () => { SESJA.zapisz(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden) SESJA.zapisz(); });
+$("#s-pliki").addEventListener("click", async e => {
+  const bw = e.target.closest("[data-wyslij-wies]");
+  if (bw) { await wyslijWies(bw.dataset.wyslijWies); return; }
+  const bz = e.target.closest("[data-zapisz-wies]");
+  if (bz) {
+    const wies = bz.dataset.zapiszWies;
+    const autor = await DB.metaGet("autor") || "x";
+    const wpisy = await DB.wpisyByWies(wies);
+    const r = await XLSXIO.zapiszDoFolderu(wies, autor, wpisy);
+    toast(r.folder ? "Zapisano do folderu: " + r.nazwa :
+        r.tryb === "dokumenty" ? "Zapisano w Dokumentach: " + r.nazwa :
+        r.tryb === "udostepnij" ? "Plik gotowy — wybierz, gdzie zapisać" :
+        r.tryb === "blad" ? "Nie udało się zapisać: " + (r.powod || "?") :
+        "Plik pobrany: " + r.nazwa);
+    CLOUDS.log("<b>zapisano lokalnie</b> " + r.nazwa + (r.folder ? " (folder)" : " (pobieranie)"));
+  }
+});
+$("#btn-wyslij-wszystko").addEventListener("click", async () => {
+  const btn = $("#btn-wyslij-wszystko");
+  if (btn) { btn.disabled = true; btn.textContent = "Synchronizuję…"; }
+  try {
+    const wsie = await DB.wpisyWsie();
+    if (!wsie.length) { toast("Brak wpisów do wysłania"); return; }
+    const autor = await DB.metaGet("autor") || "x";
+    let lokalnie = 0;
+    for (const w of wsie) {
+      /* kopia na telefonie (jeśli wybrany folder / pobieranie) */
+      try {
+        const wpisy = await DB.wpisyByWies(w);
+        const r = await XLSXIO.zapiszDoFolderu(w, autor, wpisy);
+        if (r.tryb !== "blad") { lokalnie++; CLOUDS.log("<b>zapisano lokalnie</b> " + r.nazwa + (r.folder ? " (folder)" : " (pobieranie)")); }
+        else CLOUDS.log("⚠ zapis lokalny nieudany: " + (r.powod || "?"));
+      } catch (e) { /* brak folderu — pomijamy kopię lokalną */ }
+      /* chmury */
+      await wyslijWies(w, true);
+    }
+    if (lokalnie) toast("Kopie na telefonie: " + lokalnie + " · szczegóły w dzienniku");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "Synchronizuj"; }
+  }
+});
+async function wyslijWies(wies, cicho) {
+  const btn = document.querySelector(`[data-wyslij-wies="${wies}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  try {
+    const r = await CLOUDS.synchronizujWies(null, wies);
+    const ok = Object.values(r.raport).filter(v => v === "ok").length;
+    const bledy = Object.entries(r.raport).filter(([k, v]) => v !== "ok");
+    CLOUDS.log(`<b>wysłano ${r.nazwa}</b> — ${r.ile} wpisów, chmury OK: ${ok}/${ok + bledy.length}`);
+    bledy.forEach(([k, v]) => CLOUDS.log("⚠ " + k + ": " + v));
+    toast(ok ? "Wysłano ✓ (" + ok + " chmur" + (ok > 1 ? "y" : "") + ", " + r.ile + " wpisów)" : "Błąd wysyłki — szczegóły w dzienniku");
+    SESJA.zapiszZLogiem();
+    /* v1.0.63: przy okazji odświeżamy backup całej sesji w chmurze */
+    SESJA.wyslijDoChmury().then(b => {
+      if (b && b.ok) CLOUDS.log("<b>backup sesji w chmurze</b> odświeżony (" + b.ile + " wpisów)");
+    }).catch(() => {});
+  } catch (e) {
+    CLOUDS.log("⚠ wysyłka nieudana: " + e.message);
+    toast("Wysyłka nie udała się: " + e.message);
+  }
+  rysujSync();
+}
+
+/* ---------- automatyczna wysyłka ----------
+   Wpisy „lokalne” i „w kolejce” wysyłają się same — po zapisie opisu,
+   po powrocie internetu i po uruchomieniu aplikacji. Wysyłka idzie
+   całą wsią (plik w chmurze odświeża się o nowe/poprawione wpisy),
+   cicho: krótki toast i wpis w dzienniku, nic nie przeszkadza
+   w pracy w formularzu. Działa tylko przy skonfigurowanej chmurze. */
+let autoWysylkaTimer = null, autoWysylkaTrwa = false;
+function zaplanujAutoWysylke(ms) {
+  if (autoWysylkaTimer) clearTimeout(autoWysylkaTimer);
+  autoWysylkaTimer = setTimeout(autoWysylkaStart, ms == null ? 12000 : ms);
+}
+async function autoWysylkaStart() {
+  autoWysylkaTimer = null;
+  if (autoWysylkaTrwa || typeof CLOUDS === "undefined") return;
+  autoWysylkaTrwa = true;
+  try {
+    const [pc, gd, nc] = await Promise.all(
+      [DB.metaGet("pcloud"), DB.metaGet("gdrive"), DB.metaGet("nextcloud")]);
+    const saChmury = (pc && pc.token) || (gd && gd.refreshToken) || (nc && nc.url);
+    if (!saChmury) return;
+    const wsie = [...new Set((await DB.wpisyAll())
+      .filter(w => w.status !== "wyslany" && w.wies).map(w => w.wies))];
+    if (!wsie.length) return;
+    /* v1.0.59: navigator.onLine w aplikacji Android kłamie — w trybie
+       samolotowym dalej mówi „online”. Zamiast niego sondujemy prawdziwe
+       serwery chmur; brak odpowiedzi = czekamy minutę i próbujemy znowu. */
+    await sprawdzPolaczenie();
+    if (!STATUS_POLACZENIA) { zaplanujAutoWysylke(60000); return; }
+    let ok = 0, nie = 0;
+    const wyslaneWsie = [];
+    for (const wies of wsie) {
+      try {
+        const r = await CLOUDS.synchronizujWies(null, wies);
+        ok++;
+        wyslaneWsie.push(wies);
+        CLOUDS.log("<b>auto-wysyłka</b> — " + r.nazwa + " (" + r.ile + " wpisów)");
+      } catch (e) {
+        if (String(e && e.message || e).includes("brak skonfigurowanych")) return;
+        nie++;
+        CLOUDS.log("⚠ auto-wysyłka " + wies + ": " + (e && e.message || e));
+      }
+    }
+    if (ok) {
+      STATUS_POLACZENIA = true;
+      toast("Auto-wysyłka: " + (ok === 1 ? "1 wieś" : ok + " wsi") + " wysłane ✓", 5000);
+      SESJA.zapiszZLogiem();
+      SESJA.wyslijDoChmury().catch(() => {});   /* v1.0.63: backup sesji w chmurze */
+      powiadomAndroid("Forestly GO — wysłano", "Opisy poszły do chmury: " + wyslaneWsie.join(", ") + ".");
+    }
+    if (ok || nie) { rysujWykaz(); rysujPulpitWsi(); }
+    /* nie udało się? za minutę (wykryty brak sieci) albo za 5 minut (inny błąd) */
+    if (nie) zaplanujAutoWysylke(STATUS_POLACZENIA ? 5 * 60 * 1000 : 60000);
+  } finally { autoWysylkaTrwa = false; }
+}
+window.addEventListener("online", () => zaplanujAutoWysylke(3000));
+/* v1.0.59: tętno auto-wysyłki — WebView nie zawsze odpala „online”,
+   więc co minutę sami zaglądamy, czy coś nie czeka na wysyłkę */
+setInterval(() => { if (!autoWysylkaTimer && !autoWysylkaTrwa) zaplanujAutoWysylke(500); }, 60000);
+/* szukajka w wykazie (warunkowo — na wypadek mieszanych plików po
+   aktualizacji w tle, patrz lekcja z v1.0.50) */
+(function bindSzukajki() {
+  const sz = document.getElementById("wykaz-szukaj");
+  if (sz) sz.addEventListener("input", () => rysujWykaz());
+})();
+
+/* przyciski okna usuwania (warunkowe — patrz lekcja z v1.0.50) */
+(function bindOknaUsun() {
+  const okno = document.getElementById("okno-usun");
+  if (!okno) return;
+  const zamknij = () => okno.classList.remove("on");
+  const b = id => document.getElementById(id);
+  if (b("usun-zamknij")) b("usun-zamknij").addEventListener("click", zamknij);
+  if (b("usun-anuluj")) b("usun-anuluj").addEventListener("click", () => { window.__doUsuniecia = null; zamknij(); });
+  if (b("usun-potwierdz")) b("usun-potwierdz").addEventListener("click", async () => {
+    const id = window.__doUsuniecia; zamknij(); window.__doUsuniecia = null;
+    if (!id) return;
+    await oznaczUsuniety(id);
+    toast("Wpis usunięty — w Excelu dostanie dopisek „USUNIĘTY”");
+  });
+  okno.addEventListener("click", e => { if (e.target === okno) zamknij(); });
+})();
+/* szkic formularza (v1.0.58): awaryjny autozapis co 4 s + przy chowaniu
+   strony — gdy bateria padnie albo Android ubije aplikację, niedokończony
+   opis wraca po restarcie (pytanie przy uruchomieniu). Edycja istniejącego
+   wpisu nie jest szkicem — oryginał i tak siedzi w bazie. */
+const SZKIC = "fg_szkic";
+function szkicPusty(s) {
+  /* sama nazwa wsi nie jest szkicem — start ustawia ją z „ostatniej wsi”,
+     pytanie przy każdym uruchomieniu byłoby fałszywym alarmem */
+  return !(s.dzialki && s.dzialki.length) && !s.siedlisko && !s.panujacy;
+}
+function zapiszSzkic() {
+  try {
+    if (trybEdycji || szkicPusty(stan)) { localStorage.removeItem(SZKIC); return; }
+    localStorage.setItem(SZKIC, JSON.stringify({ stan, zapis: new Date().toISOString() }));
+  } catch (e) { /* quota / tryb prywatny — po prostu bez szkicu */ }
+}
+setInterval(zapiszSzkic, 4000);
+window.addEventListener("pagehide", zapiszSzkic);
+async function mozePrzywrocSzkic() {
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(SZKIC) || "null"); } catch (e) { s = null; }
+  if (!s || !s.stan || szkicPusty(s.stan)) { localStorage.removeItem(SZKIC); return; }
+  const st = Object.assign(nowyStan(), s.stan, { dzialki: s.stan.dzialki || [], pjd: s.stan.pjd || [], podsz: s.stan.podsz || [] });
+  const kiedy = new Date(s.zapis).toLocaleString("pl-PL");
+  const nr = st.dzialki.length ? st.dzialki.join(", ") : "bez numeru";
+  const chce = confirm("Masz niedokończony opis:\n" +
+    "wieś " + (st.wies || "—") + ", wydzielenie " + nr + "\n" +
+    "(zapisany w szkicu " + kiedy + ")\n\nPrzywrócić go do formularza?");
+  if (chce) { trybEdycji = null; stan = st; uzupelnijForm(); rysuj(); przelaczTab("form"); }
+  else localStorage.removeItem(SZKIC);
+}
+/* v1.0.60: usunięcie wpisu = nagrobek. Wpis znika z aplikacji, ale
+   zostaje w bazie (status „usuniety”, znacznik kiedy). Przy wysyłce
+   wsi ląduje w Excelu w chmurze z dopiskiem „USUNIĘTY <data>” w
+   kolumnie „usuniety” — i dopiero po tej wysyłce ma spokój. */
+async function oznaczUsuniety(id) {
+  const w = (await DB.wpisyAll()).find(x => x.id === id);
+  if (!w) return;
+  w.status = "usuniety";
+  w.usuniety = new Date().toISOString();
+  await DB.wpisyPut(w);
+  SESJA.zapiszZLogiem();
+  CLOUDS.log("<b>usunięto wpis</b> " + oddzPelne(w) + " (" + w.wies + ") — " +
+    "w Excelu dostanie dopisek „USUNIĘTY” przy najbliższej wysyłce");
+  rysujWykaz(); rysujPulpitWsi();
+}
+/* powiadomienie systemowe Androida (v1.0.58) — działa w APK (wtyczka
+   LocalNotifications z Capacitora); w przeglądarce/PWA pomijamy */
+async function powiadomAndroid(tytul, tresc) {
+  try {
+    if (!window.Capacitor || !Capacitor.Plugins || !Capacitor.Plugins.LocalNotifications) return;
+    const LN = Capacitor.Plugins.LocalNotifications;
+    let p = await LN.checkPermissions();
+    if (p.display !== "granted") {
+      p = await LN.requestPermissions();
+      if (p.display !== "granted") return;
+    }
+    await LN.schedule({ notifications: [{
+      title: tytul, body: tresc, id: Date.now() % 2147483647 }] });
+  } catch (e) { /* ozdoba — błąd ignorujemy */ }
+}
+/* ---------- nawigacja ---------- */
+$("#bnav").addEventListener("click", e => {
+  const bn = e.target.closest(".bn");
+  if (!bn) return;
+  if (bn.id === "bn-wies") { przelaczTab("wsie"); return; }   /* v1.0.59: pulpit z kartami wsi — jak nazwa wsi u góry */
+  if (bn.dataset.tab === "form" && !trybEdycji && !stan.wies && aktywnaWies) {
+    /* „Nowy opis” otwiera formularz z ostatnio wpisywaną wsią */
+    stan.wies = aktywnaWies;
+    uzupelnijForm(); rysuj();
+  }
+  przelaczTab(bn.dataset.tab);
+});
+
+/* ---------- wybór wsi (przycisk „Wieś” w nawigacji) ---------- */
+async function otworzWyborWsi() {
+  const box = $("#wies-wyb");
+  const wsie = await DB.wpisyWsie();
+  const wszystkie = await DB.wpisyAll();
+  let html = wsie.map(w => {
+    const ile = wszystkie.filter(x => x.wies === w).length;
+    return '<button type="button" class="wies-poz' + (aktywnaWies === w ? " wybrana" : "") + '" data-wies="' + w + '">' +
+      "<b>" + w + (aktywnaWies === w ? " ✓" : "") + "</b><small>" + ile + " wpis" + (ile === 1 ? "" : "ów") + "</small></button>";
+  }).join("");
+  if (!wsie.length) html = '<div class="s-notka">Jeszcze nie ma żadnej wsi — pierwszą nazwiesz przy pierwszym opisie.</div>';
+  html += '<button type="button" class="wies-poz nowa" id="wies-nowa2"><b>+ Nowa wieś</b><small>nazwę wpiszesz przy pierwszym opisie</small></button>';
+  box.innerHTML = html;
+  box.querySelectorAll(".wies-poz[data-wies]").forEach(p =>
+    p.addEventListener("click", () => wybierzWies(p.dataset.wies)));
+  const n2 = box.querySelector("#wies-nowa2");
+  if (n2) n2.addEventListener("click", () => {
+    aktywnaWies = ""; localStorage.removeItem("aktywnaWies");
+    trybEdycji = null; stan = nowyStan(); uzupelnijForm(); rysuj();
+    $("#okno-wies").classList.remove("on");
+    odswiezListeWsi(); odswiezAppbar(); przelaczTab("form");
+    toast("Nowa wieś — wpisz nazwę w pierwszym polu");
+  });
+  $("#okno-wies").classList.add("on");
+}
+function wybierzWies(w) {
+  aktywnaWies = w;
+  localStorage.setItem("aktywnaWies", w);
+  trybEdycji = null;
+  stan = nowyStan();
+  stan.wies = w;
+  uzupelnijForm(); rysuj();
+  $("#okno-wies").classList.remove("on");
+  odswiezListeWsi(); odswiezAppbar();
+  przelaczTab("form");
+  toast("Wieś: " + w + " — nowe opisy będą tu wpisywane");
+}
+/* zabezpieczone jak okno braków — przy zmieszanych wersjach plików
+   po aktualizacji w tle elementy mogą jeszcze nie istnieć */
+if (document.getElementById("okno-wies")) {
+  $("#wies-zamknij").addEventListener("click", () => $("#okno-wies").classList.remove("on"));
+  $("#okno-wies").addEventListener("click", e => {
+    if (e.target.id === "okno-wies") $("#okno-wies").classList.remove("on");
+  });
+}
+
+/* ---------- podpowiedzi wsi (własna rozwijana lista) ---------- */
+let znaneWsie = [];
+async function odswiezListeWsi() { znaneWsie = await DB.wpisyWsie(); }
+function bindAutoWsie() {
+  const inp = $("#in-wies"), lista = $("#auto-wsie");
+  if (!inp || !lista) return;
+  const pokaz = () => {
+    const q = inp.value.trim().toLowerCase();
+    const traf = znaneWsie.filter(w => w.toLowerCase().includes(q)).slice(0, 6);
+    if (!q || !traf.length || (traf.length === 1 && traf[0].toLowerCase() === q)) { lista.classList.remove("on"); return; }
+    lista.innerHTML = traf.map(w => `<div class="auto-poz" data-w="${w}">${w}</div>`).join("");
+    lista.classList.add("on");
+  };
+  const schowaj = () => setTimeout(() => lista.classList.remove("on"), 140);
+  inp.addEventListener("input", pokaz);
+  inp.addEventListener("focus", pokaz);
+  inp.addEventListener("blur", schowaj);
+  inp.addEventListener("keydown", e => {
+    if (e.key === "Escape") { lista.classList.remove("on"); e.preventDefault(); }
+  });
+  lista.addEventListener("mousedown", e => {
+    const poz = e.target.closest(".auto-poz");
+    if (!poz) return;
+    e.preventDefault(); // nie gub fokusu zanim wybierzemy
+    inp.value = poz.dataset.w;
+    lista.classList.remove("on");
+    inp.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  document.addEventListener("click", e => {
+    if (!e.target.closest(".auto-box")) lista.classList.remove("on");
+  });
+}
+bindAutoWsie();
+
+/* ---------- sprawdzanie aktualizacji (ręczny przycisk w Sync) ---------- */
+async function sprawdzAktualizacjeRecznie() {
+  const btn = $("#btn-sprawdz-aktualizacje");
+  const bylTekst = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Sprawdzam…"; }
+  const wroc = () => { if (btn) { btn.disabled = false; btn.textContent = bylTekst; } };
+  const moja = apkWersja() || (typeof WERSJA_APLIKACJI !== "undefined" ? String(WERSJA_APLIKACJI).replace(/^v/, "") : "");
+  if (!moja) { toast("Nie znam wersji aplikacji"); wroc(); return; }
+  try {
+    // wymuszamy świeże sprawdzenie — pomijamy 6-godzinny limit
+    localStorage.setItem("apk_check", "0");
+    const r = await fetch("https://api.github.com/repos/wskakuj/forestly-go/releases/latest");
+    if (!r.ok) { toast("GitHub nie odpowiedział (" + r.status + ")"); wroc(); return; }
+    const rel = await r.json();
+    const najnowsza = (rel.tag_name || "").replace(/^v/, "");
+    if (!najnowsza) { toast("Nie znalazłem wydań na GitHubie"); wroc(); return; }
+    if (porownajWersje(najnowsza, moja) <= 0) {
+      localStorage.removeItem("apk_dostepna");
+      const baner = document.getElementById("baner-apk"); if (baner) baner.remove();
+      toast("Masz najnowszą wersję: " + moja + " ✓");
+      CLOUDS.log("sprawdzono aktualizacje — bieżąca " + moja + " jest najnowsza");
+      wroc(); return;
+    }
+    // jest nowsza wersja
+    localStorage.setItem("apk_dostepna", najnowsza);
+    const apk = (rel.assets || []).find(a => a.name === "ForestlyGO.apk");
+    const url = apk ? apk.browser_download_url : (rel.html_url || "");
+    localStorage.setItem("apk_url", url);
+    CLOUDS.log("<b>dostępna nowa wersja</b> " + najnowsza + " (masz " + moja + ")");
+    if (!apkWersja()) {
+      // przeglądarka / PWA — aktualizuje się sama przez service workera
+      if ("serviceWorker" in navigator && !NATYWNIE) {
+        const reg = await navigator.serviceWorker.getRegistration();
+        if (reg) await reg.update().catch(() => {});
+      }
+      toast("Nowa wersja " + najnowsza + " — zamknij i otwórz aplikację, sama się podmieni");
+      wroc(); return;
+    }
+    // APK — pytamy, pobieramy, podpowiadamy instalację
+    if (!confirm("Jest nowa wersja: " + najnowsza + " (masz " + moja + ").\n\nPobrać i zainstalować?")) {
+      localStorage.setItem("apk_omin", najnowsza); wroc(); return;
+    }
+    if (!url || !apk) { window.open(rel.html_url || "https://github.com/wskakuj/forestly-go/releases/latest", "_blank"); wroc(); return; }
+    if (NATYWNIE) {
+      localStorage.removeItem("apk_omin");
+      const baner = document.getElementById("baner-apk"); if (baner) baner.remove();
+      CLOUDS.log("pobieram aktualizację " + najnowsza + " w aplikacji");
+      await pobierzIZainstalujApk(url, najnowsza);
+      wroc(); return;
+    }
+    if (btn) btn.textContent = "Pobieram " + najnowsza + "…";
+    const rr = await fetch(url);
+    if (!rr.ok) { toast("Nie udało się pobrać (" + rr.status + ")"); wroc(); return; }
+    const blob = await rr.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "ForestlyGO-" + najnowsza + ".apk";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    localStorage.removeItem("apk_omin");
+    const baner = document.getElementById("baner-apk"); if (baner) baner.remove();
+    CLOUDS.log("pobrano instalator " + najnowsza + " — otwórz go z powiadomienia (lub z Pobranych), żeby zainstalować");
+    toast("Pobrano ✓ — dotknij powiadomienia (albo plik w Pobranych), żeby zainstalować", 6000);
+  } catch (e) {
+    toast("Nie udało się sprawdzić: " + (e && e.message ? e.message : "błąd sieci"));
+  }
+  wroc();
+}
+$("#btn-sprawdz-aktualizacje").addEventListener("click", sprawdzAktualizacjeRecznie);
+
+/* ---------- start ---------- */
+async function start() {
+  renderChips();
+  const autor = await DB.metaGet("autor");
+  if (!autor) { onbKrok = 0; renderOnb(); }
+  else {
+    $("#onboarding").classList.remove("on");
+    const ostatniaWies = await DB.metaGet("ostatniaWies");
+    if (ostatniaWies) stan.wies = ostatniaWies;
+    przelaczTab("wsie");
+    mozePrzywrocSzkic();   /* v1.0.58: niedokończony opis z poprzedniej sesji? */
+  }
+  await odswiezListeWsi();
+  // dokończenie instalacji, jeśli była pobrana, a brakowało zgody systemowej
+  const apkCache = localStorage.getItem("apk_cache_uri");
+  if (czyNatywnie() && apkCache) {
+    const Akt = window.Capacitor.Plugins.Aktualizacje;
+    const wersjaApk = localStorage.getItem("apk_cache_wersja") || "";
+    if (Akt) {
+      const wyn = await Akt.zainstaluj({ uri: apkCache }).catch(() => null);
+      if (wyn && wyn.wymagaZgody) {
+        /* nadal brak zgody — czekamy na użytkownika */
+      } else {
+        localStorage.removeItem("apk_cache_uri");
+        CLOUDS.log("instalator aktualizacji " + wersjaApk + " gotowy");
+      }
+    }
+  }
+  bindOnbKeys();
+  odswiezAppbar(); rysuj(); rysujWykaz(); wczytajKonfigChmur(); sprawdzAktualizacjeApk();
+  setTimeout(sprobujBackupZChmury, 3000);
+  setTimeout(() => {
+  if (!("serviceWorker" in navigator) || czyNatywnie()) return;
+    // przeładuj od razu, gdy NOWA wersja aplikacji przejmuje kontrolę
+    // (ale nie przy pierwszej instalacji — wtedy przejmowanie jest normalne)
+    const mialKontrolera = !!navigator.serviceWorker.controller;
+    let przeladowano = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!mialKontrolera || przeladowano) return;
+      przeladowano = true; location.reload();
+    });
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(() => {});
+    // Chrome sam sprawdza aktualizacje SW najwyżej raz na 24 h —
+    // wymuszamy sprawdzanie przy KAŻDYM otwarciu aplikacji.
+    navigator.serviceWorker.ready.then(r => r.update()).catch(() => {});
+  }, 1500);
+
+  $("#in-wies").addEventListener("change", async e => {
+    await DB.metaSet("ostatniaWies", e.target.value);
+  });
+}
+async function odswiezStart() {
+  await odswiezListeWsi();
+  odswiezAppbar(); rysuj(); rysujWykaz(); wczytajKonfigChmur();
+  zaplanujAutoWysylke(10000);   /* start z zasięgiem? wyślij to, co zostało w lesie */
+}
+function bindOnbKeys() {
+  // obsługa Enter w kreatorze — delegowana
+  $("#onb").addEventListener("keydown", e => {
+    if (e.key === "Enter" && onbKrok === 0) onbDalej();
+  });
+}
+start();
+
+/* ---------- autotest (uruchamiany z ?test=1) ---------- */
+if (new URLSearchParams(location.search).get("test")) {
+  window.__TEST__ = async function () {
+    const wyniki = [];
+    const sprawdz = (nazwa, warunek, extra) => {
+      wyniki.push((warunek ? "OK  " : "FAIL") + " " + nazwa + (extra ? " | " + extra : ""));
+    };
+    try {
+      // 1. onboarding
+      $("#onb-autor").value = "Mietek Kowalski";
+      await onbDalej();
+      sprawdz("onboarding krok 1 -> 2", onbKrok === 1);
+      // 2. formularz
+      stan.wies = "Lasków";
+      stan.siedlisko = "LMśw"; stan.panujacy = "So"; stan.drugi = "Db"; stan.udzialPanujacy = 8; stan.udzialDrugi = 2;
+      stan.dzialki = "5/501, 8/254";
+      stan.zwarcie = "umiark."; stan.podsz = ["krusz", "jrz"]; stan.podszProc = 50;
+      rysuj();
+      sprawdz("skład z rozprzęgniętymi gatunkami", OPTAX.sklad(stan) === "8So;2Db", OPTAX.sklad(stan));
+      const stary = { panujacy: "So", drugi: "Db", udzialDrugi: 3 };
+      sprawdz("stare wpisy (bez udzialPanujacy) bez zmian", OPTAX.sklad(stary) === "7So;3Db", OPTAX.sklad(stary));
+      sprawdz("podglad OPTAX", $("#pv-line").textContent.includes("LMśw") &&
+        $("#pv-line").textContent.includes("nr-y.Rej. 5/501"), $("#pv-line").textContent.replace(/\n/g, " / "));
+      // 3. zapis wpisu
+      await zapiszWpis();
+      const po = await DB.wpisyAll();
+      sprawdz("wpis zapisany w IndexedDB", po.length === 1 && po[0].wies === "Lasków" && po[0].udzialPanujacy === 8);
+      // 4. XLSX
+      const blob = await XLSXIO.blobZwpisow(po);
+      sprawdz("XLSX zbudowany", blob.size > 3000, blob.size + " B");
+      // 5. edycja wpisu (poprawka)
+      const zapisany = po[0];
+      trybEdycji = zapisany.id;
+      stan = Object.assign(nowyStan(), zapisany); stan.udzialDrugi = 3;
+      await zapiszWpis();
+      const po2 = await DB.wpisyAll();
+      sprawdz("poprawka nadpisuje wpis", po2.length === 1 && po2[0].udzialDrugi === 3);
+      // 6. WebDAV mock (serwer na :8123)
+      await DB.metaSet("nextcloud", { url: "http://localhost:8123", user: "mietek", pass: "tokensekret" });
+      const wynik = await CLOUDS.synchronizujWies(null, "Lasków");
+      sprawdz("synchronizacja WebDAV", wynik.raport.nextcloud === "ok", JSON.stringify(wynik.raport));
+      const po3 = await DB.wpisyAll();
+      sprawdz("wpisy oznaczone jako wyslane", po3.every(w => w.status === "wyslany"));
+      // 7. wykluczenie XLSX z folderu (bez uchwytu) — tylko rozmiar
+      const nazwa = XLSXIO.nazwaPliku("Lasków", "Mietek Kowalski");
+      sprawdz("nazwa pliku", nazwa === "Taksator_Mietek_Kowalski_Laskow.xlsx", nazwa);
+    } catch (e) {
+      wyniki.push("FAIL wyjatek: " + (e && e.message));
+    }
+    $("#testout").textContent = wyniki.join("\n");
+    document.title = wyniki.some(w => w.startsWith("FAIL")) ? "TESTY-FAIL" : "TESTY-OK";
+  };
+  window.addEventListener("load", () => setTimeout(window.__TEST__, 300));
+}
+
+/* ---------- zakładki chmur: otwarta jedna naraz ---------- */
+document.querySelectorAll(".chmura").forEach(d => {
+  d.addEventListener("toggle", () => {
+    if (d.open) document.querySelectorAll(".chmura").forEach(x => { if (x !== d) x.open = false; });
+  });
+});
+
+/* ---------- okno ustawień chmur ---------- */
+$("#btn-chmury-ustawienia").addEventListener("click", async () => {
+  await wczytajKonfigChmur();   /* świeże wartości zapisanej konfiguracji */
+  $("#okno-chmur").classList.add("on");
+});
+$("#chmury-zamknij").addEventListener("click", () => {
+  $("#okno-chmur").classList.remove("on");
+});
+$("#okno-chmur").addEventListener("click", e => {
+  if (e.target.id === "okno-chmur") $("#okno-chmur").classList.remove("on");
+});
+
+/* ---------- samonaprawa wersji ----------
+   Przy aktualizacji w tle service worker potrafi podać pliki z DWÓCH wersji
+   naraz (np. nowy app.js + stary index.html). Każdy nasłuch jest już
+   zabezpieczony na brak elementu, więc aplikacja wystartuje — ale żeby nie
+   pracować na miksie, porównujemy wersję HTML ze wersją skryptów i przy
+   niezgodności przeładowujemy stronę RAZ (service worker poda wtedy już
+   komplet plików z jednej wersji). */
+(function samonaprawaWersji() {
+  try {
+    const html = window.__htmlWersja;
+    const js = (typeof WERSJA_APLIKACJI !== "undefined" ? String(WERSJA_APLIKACJI) : "").replace(/^v/, "");
+    if (html && js && html !== js && !sessionStorage.getItem("fg_przeladowanie")) {
+      sessionStorage.setItem("fg_przeladowanie", "1");
+      location.replace(location.href);
+    }
+  } catch (e) { /* nic — to tylko zabezpieczenie */ }
+})();

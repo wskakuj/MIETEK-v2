@@ -1018,6 +1018,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
       obreby.forEach(function (o) { o.pliki.oryginal = o.pliki.oryginal; });
       S.obreby = obreby; S.aktywny = obreby[0]; S.brudne = {};
       S.rejAkt = "";
+      zastosujNumeryZPliku();   // numery porządkowe/działki z MIETEK_numery.json
       wczytajSlownikiGlobalne();
       wybierzPierwszeWydz();
       autoBonitacjaWszystko();   // automatycznie uzupełnij bonitację i zasobność, gdzie się da
@@ -1140,6 +1141,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
   function numerUstaw(rec, val) {
     var k = kluczNr(rec); S.numery[k] = val;
     try { localStorage.setItem("mietek_nr:" + k, val); } catch (e) { }
+    zaplanujZapisNumerow();
   }
   // numer działki — też trzymany lokalnie (wydzielenie nie ma na to pola w DBF),
   // służy do dociągnięcia powierzchni z pliku D.
@@ -1151,7 +1153,57 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
   function dzialkaUstaw(rec, val) {
     var k = kluczNr(rec); S.dzialki[k] = val;
     try { localStorage.setItem("mietek_dzial:" + k, val); } catch (e) { }
+    zaplanujZapisNumerow();
   }
+
+  /* MIETEK_NUMERY_FILE_V14 -------------------------------------------------
+     Numery porządkowe i numery działek nie mieszczą się w DBF, więc trzymamy je
+     w pliku MIETEK_numery.json w tym samym folderze, co pliki DBF — dzięki temu
+     jadą razem z danymi na inny komputer i wracają przy wczytaniu folderu. */
+  var numeryZPliku = null, numerySciezka = "", numeryTimer = null, numeryCzeka = false;
+  function kluczPliku(rec) { return String(rec.ODDZIAL || "") + String(rec.PODODDZ || ""); }
+  function rekordyO() { return (S.aktywny && S.aktywny.pliki && S.aktywny.pliki.O) ? S.aktywny.pliki.O.parsed.rekordy : []; }
+  function zastosujNumeryZPliku() {
+    if (!numeryZPliku) return 0;
+    var ile = 0;
+    rekordyO().forEach(function (rec) {
+      var w = numeryZPliku[kluczPliku(rec)];
+      if (!w || typeof w !== "object") return;
+      var k = kluczNr(rec);
+      if (typeof w.nr === "string" && w.nr) { S.numery[k] = w.nr; try { localStorage.setItem("mietek_nr:" + k, w.nr); } catch (e) { } ile++; }
+      if (typeof w.dzialka === "string" && w.dzialka) { S.dzialki[k] = w.dzialka; try { localStorage.setItem("mietek_dzial:" + k, w.dzialka); } catch (e) { } }
+    });
+    numeryZPliku = null;
+    return ile;
+  }
+  function numeryDoPliku() {
+    var out = {};
+    rekordyO().forEach(function (rec) {
+      var kk = kluczNr(rec), kp = kluczPliku(rec);
+      if (!kp) return;
+      var nr = (S.numery && S.numery[kk]) || "";
+      var dz = (S.dzialki && S.dzialki[kk]) || "";
+      if (nr || dz) out[kp] = { nr: nr, dzialka: dz };
+    });
+    return out;
+  }
+  function zapiszNumery() {
+    if (numeryTimer) { clearTimeout(numeryTimer); numeryTimer = null; }
+    numeryCzeka = false;
+    if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.save_numery !== "function") return Promise.resolve(null);
+    return window.pywebview.api.save_numery(numeryDoPliku()).then(function (res) {
+      if (res && res.ok) { numerySciezka = res.path || numerySciezka; }
+      else if (res && res.error) console.warn("numery: " + res.error);
+      return res;
+    }).catch(function (e) { console.warn("numery: " + e.message); return null; });
+  }
+  function zaplanujZapisNumerow() {
+    if (!window.pywebview || !window.pywebview.api || typeof window.pywebview.api.save_numery !== "function") return;
+    numeryCzeka = true;
+    if (numeryTimer) clearTimeout(numeryTimer);
+    numeryTimer = setTimeout(zapiszNumery, 900);
+  }
+  window.addEventListener("beforeunload", function () { zapiszNumery(); });
   // Gdy zmienia się oddział/pododdział, klucz wydzielenia się zmienia — przenieś
   // zapisane lokalnie numery, żeby nie "znikały" (błąd zgłaszany przez użytkownika).
   function przeniesLokalne(stary, nowy) {
@@ -1169,7 +1221,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
 
   function pole(nazwa, rec, idx) {
     if (nazwa === "NR_PORZ") {
-      return '<label class="pole"><span>Numer porządkowy</span><input data-nr="1" value="' + esc(numerPobierz(rec)) + '" placeholder="nr porządkowy"></label>';
+      return '<label class="pole"><span title="Trzymany w pliku MIETEK_numery.json obok plików DBF">Numer porządkowy</span><input data-nr="1" value="' + esc(numerPobierz(rec)) + '" placeholder="nr porządkowy"></label>';
     }
     if (nazwa === "NR_DZIAL") {
       return '<label class="pole"><span>Numer działki</span><input data-dzial="1" list="dl-dzial" value="' + esc(dzialkaPobierz(rec)) + '" placeholder="nr działki, np. 1 lub 1,2,3"></label>';
@@ -2299,6 +2351,8 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
         Object.defineProperty(file,'webkitRelativePath',{value:x.relative});
         file.mietekToken=x.token;return file;
       });
+      numeryZPliku = result.numery || null;
+      numerySciezka = result.numerySciezka || '';
       wczytajPliki(files);
     }catch(e){alert('Błąd importu: '+e.message);}
   }
@@ -2720,6 +2774,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     Object.keys(S.brudne).forEach(function(p){var f=o.pliki[p];if(!f)return;var b=C.dbfBuild(f.parsed,f.parsed.rekordy);built[p]=b;items.push({name:f.nazwa,original:dbfBase64(f.oryginal),data:dbfBase64(b),token:f.sourceToken});});
     if(!items.length){alert('Brak zmian do zapisu.');return;}
     if(!confirm('Podmienić pliki DBF: '+items.map(function(x){return x.name;}).join(', ')+'? Przed podmianą powstaną kopie .bak. Zapis nastąpi w folderze, z którego wczytano pliki.'))return;
+    var numeryWynik=await zapiszNumery();   // numery porządkowe/działki do pliku obok DBF
     S.dbfSaving=true;
     try{
       var result=await window.pywebview.api.save_dbf(items);
@@ -2730,7 +2785,9 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
         var now=C.dbfBuild(o.pliki[p].parsed,o.pliki[p].parsed.rekordy);
         if(S.aktywny===o&&now.length===built[p].length&&now.every(function(v,i){return v===built[p][i];}))delete S.brudne[p];
       });
-      odswiezPrzyciski();alert('Zapisano DBF i kopie .bak:\n'+result.files.join('\n'));
+      odswiezPrzyciski();
+      var dodNum=(numeryWynik&&numeryWynik.ok)?'\n\nNumery porządkowe i działki: '+numeryWynik.path+' ('+numeryWynik.ile+' wpisów)':'';
+      alert('Zapisano DBF i kopie .bak:\n'+result.files.join('\n')+dodNum);
     }catch(e){alert('Nie potwierdzono zapisu: '+e.message+'\nZmiany pozostają w programie.');}
     finally{S.dbfSaving=false;}
   }
