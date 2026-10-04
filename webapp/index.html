@@ -1614,6 +1614,22 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     if (mh > 0 && base.indexOf("m3") < 0) return base + "-" + Math.trunc(mh) + "m3/ha";
     return base;
   }
+  // Nazwa wskazania z listy SWSKAZA (do wydruku ZADANIA).
+  function nazwaWskazania(kod) {
+    var f = (DICT.SWSKAZA || []).find(function (x) { return String(x.kod) === String(kod); });
+    return f ? f.nazwa : "";
+  }
+  // Kolumny "Maks. miąż." w wydruku ZADANIA: rębnie idą do kolumny "rębnym",
+  // trzebieże do "p.ręb.", pozostałe wskazania nie mają miąższości.
+  function kolumnyMaksWskaz(s) {
+    if (!s) return { prer: "", rebn: "" };
+    var v = zaokrMaks(s);
+    if (!v) return { prer: "", rebn: "" };
+    var kod = String(s.kod || "");
+    if (/^Rb/i.test(kod)) return { prer: "", rebn: v };
+    if (/^(TP|TW)/i.test(kod)) return { prer: v, rebn: "" };
+    return { prer: "", rebn: "" };
+  }
   // Miąższość na hektar dla wskazania: wpisana ręcznie, a przy rębni — zasobność.
   function miazNaHa(wsk, miaz, zasob) {
     var m = num(miaz);
@@ -1647,6 +1663,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
         out.push({
           // końcówka "-..m3/ha" bierze się z WPISANEJ miąższości (przy rębni
           // zostaje czysty kod, np. "Rb I" — tak jak w oryginale)
+          kod: String(w).replace(/-\d+m3\/ha$/i, ""),
           rodzaj: pw > 0 ? kodWskazania(w, num(r["MIAZ" + n])) : String(w).replace(/-\d+m3\/ha$/i, ""),
           pow: pw > 0 ? r4(pw / 100 * P) : 0,
           maks: pw > 0 ? (mh * (pw / 100) * P) : 0,
@@ -1920,8 +1937,11 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
         wsk.forEach(function (s, k) {
           out.push(wiersz([padL(d.NR_DZIAL, 9), padC((d.ODDZIAL || "") + (d.PODODDZ || ""), 7),
             padL(fmt4(d.POW_L_ZAL), 9), padL(fmt4(num(d.POW_N_ZAL) + num(d.POW_INNE)), 9),
-            padR(k === 0 ? opis : "", 19), padR(s ? s.rodzaj : "", 36),
-            padL(s ? fmt4(s.pow) : "", 12), padL(zaokrMaks(s), 7), padL("", 7), ""], seg));
+            padR(k === 0 ? opis : "", 19),
+            padR(s ? (s.kod + " : " + nazwaWskazania(s.kod)) : "", 36),
+            padL(s ? fmt4(s.pow) : "", 12),
+            padL(s ? kolumnyMaksWskaz(s).prer : "", 7),
+            padL(s ? kolumnyMaksWskaz(s).rebn : "", 7), ""], seg));
         });
       });
       var segR = [17, 9, 9, 19, 36, 12, 7, 7, 12];
