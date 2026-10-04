@@ -2789,6 +2789,16 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     if (el.id) return "#" + el.id;
     var d = el.dataset || {}, cz = [];
     Object.keys(d).sort().forEach(function (k) { cz.push(k + "=" + d[k]); });
+    // Pola kafelków mają takie same atrybuty (np. data-f="v" w każdym kafelku),
+    // więc do klucza dokładamy numer kafelka — inaczej po przerysowaniu widoku
+    // fokus wracałby na pierwsze takie pole zamiast na właściwe.
+    var kaf = el.closest ? el.closest(".kafelek") : null;
+    if (kaf) cz.unshift("kaf=" + (kaf.dataset.i == null ? "" : kaf.dataset.i));
+    var rzad = el.closest ? el.closest(".sklad-row") : null;
+    if (rzad) {
+      var rodzenstwo = rzad.parentNode ? Array.prototype.slice.call(rzad.parentNode.children) : [];
+      cz.unshift("rzad=" + rodzenstwo.indexOf(rzad));
+    }
     return el.tagName + "|" + (el.type || "") + "|" + cz.join(",");
   }
   function kursorNaKoniec(el) {
@@ -2799,8 +2809,11 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
   }
   // Przejście do pola. Przerysowanie widoku (po zdarzeniu zmiany) gubi
   // zaznaczenie, więc po przerysowaniu odnajdujemy pole i wracamy do niego.
+  var _wNawigacjiDo = 0;
+  function trwaNawigacja() { return Date.now() < _wNawigacjiDo; }
   function idzDoPola(el) {
     if (!el) return false;
+    _wNawigacjiDo = Date.now() + 700;   // w tym czasie nie przebudowujemy widoku
     _navCel = { klucz: kluczPola(el), idx: polaFormularza(el).indexOf(el) };
     try { el.focus(); } catch (e) { }
     if (document.activeElement === el) kursorNaKoniec(el);
@@ -2975,7 +2988,9 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
       if (d.autoBon) { autoBonitacja(+d.r); odswiezBonPola(+d.r); }
       return;
     }
-    if (t.closest && t.closest(".kafelek")) { edytujKafelek(t); odswiezWidok(); }
+    // Kafelek: zapisujemy wartość i odświeżamy podgląd, ale przy przechodzeniu
+    // strzałkami nie przebudowujemy całego widoku — inaczej fokus by się gubił.
+    if (t.closest && t.closest(".kafelek")) { edytujKafelek(t); if (!trwaNawigacja()) odswiezWidok(); }
   }
   function onClick(e) {
     var t = e.target, d = t.dataset; if (!d && !t.closest) return;
