@@ -1119,6 +1119,13 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
   function odswiezWidok() {
     var w = $("#widok");
     var zakl = document.body.dataset.zakl || "taksacja";
+    // Zapamiętaj pole, na którym jesteśmy — po przerysowaniu wracamy na nie,
+    // żeby zmiana wartości nie wyrzucała kursora z formularza.
+    var fokus = null, akt = document.activeElement;
+    if (akt && akt !== document.body && akt.matches && akt.matches(SEL_POL)
+        && akt.closest && akt.closest("#widok")) {
+      fokus = kluczPola(akt);
+    }
     if (zakl === "taksacja") w.innerHTML = widokTaksacja();
     else if (zakl === "rejestr") w.innerHTML = widokRejestr();
     else if (zakl === "wies") w.innerHTML = widokWies();
@@ -1126,6 +1133,15 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     else if (zakl === "wydruk") w.innerHTML = widokWydruk();
     $$(".zakladka").forEach(function (b) { b.classList.toggle("akt", b.dataset.z === zakl); });
     if (typeof poWidoku === "function") poWidoku();
+    if (fokus) odtworzFokus(fokus);
+  }
+  function odtworzFokus(klucz) {
+    var p = polaFormularza(), el = null;
+    for (var i = 0; i < p.length; i++) { if (kluczPola(p[i]) === klucz) { el = p[i]; break; } }
+    if (!el || document.activeElement === el) return;
+    try { el.focus(); } catch (e) { }
+    if (el.tagName === "SELECT" || el.type === "checkbox" || el.type === "radio" || el.type === "range") return;
+    kursorNaKoniec(el);
   }
 
   /* ----------------------------------------------- WIDOK: TAKSACJA ---- */
@@ -1313,8 +1329,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     var h = [];
     h.push('<div class="karta">');
     h.push('<div class="karta-naglowek"><h2>Opis taksacyjny</h2>' +
-      '<div class="przel"><button class="min" id="btn-nowy-opis">✎ Nowy opis (od zera)</button>' +
-      '<button class="min akcja" id="btn-z-r">Wypełnij z elementów (R)</button></div></div>');
+      '<div class="mini-info">Zbuduj opis z segmentów poniżej — program sam uzupełnia bonitację, zasobność i zakres wieku.</div></div>');
     var tiles = pobierzKafelki(r);
     h.push('<div class="builder">');
     // kafelki
@@ -1415,8 +1430,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
   function tabelaR(oddz, pod) {
     var rows = rekordyR(oddz, pod);
     var h = ['<div class="karta"><div class="karta-naglowek"><h2>Elementy taksacyjne (R)</h2>' +
-      '<button class="min akcja" id="btn-dodaj-r">+ dodaj element</button>' +
-      '<button class="min akcja" id="btn-auto-bon" title="Uzupełnij bonitację i zasobność z tablicy SBONITA">⚙ Auto bonitacja</button></div>'];
+      '<button class="min akcja" id="btn-dodaj-r">+ dodaj element</button></div>'];
     h.push('<div class="tabela-wrap"><table class="tabela r-tabela"><thead><tr>' +
       ['Gatunek', 'Wiek', 'Klasa w.', 'Wys [m]', 'Pierś [cm]', 'Bonit.', 'Zadrzew.', 'Jakość', 'Zasobn.', 'Przes.'].map(function (x) { return '<th>' + x + '</th>'; }).join("") +
       '<th colspan="3">Wskazanie 1</th><th colspan="3">Wskazanie 2</th><th></th></tr>' +
@@ -2833,6 +2847,16 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
   // Kliknięcia generowane klawiaturą (Enter/Spacja na przycisku) mają
   // e.detail === 0 — tylko takie wyciszamy, prawdziwych myszką nie ruszamy.
   var _blokujKlikDo = 0;
+  var _otwartaLista = null;    // lista rozwijana rozwinięta Enterem (czeka na zatwierdzenie)
+  // Po zatwierdzeniu wyboru na liście (Enterem w rozwiniętej liście) przeglądarka
+  // wysyła na niej zdarzenie "click" — wtedy przechodzimy do następnego pola.
+  // Kliknięcia myszką nie ruszają, bo one nie ustawiają _otwartaLista.
+  function zatwierdzListe(e) {
+    var t = e.target;
+    if (!t || t !== _otwartaLista) return;
+    _otwartaLista = null;
+    setTimeout(function () { idzDoPola(poleSasiednie(t, 1)); }, 0);
+  }
   function wyciszKlikZWolaniem(e) {
     if (e.detail === 0 && Date.now() < _blokujKlikDo) {
       _blokujKlikDo = 0;
@@ -2861,6 +2885,21 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
 
     if (k === "Enter") {
       if (t.tagName === "TEXTAREA" && !e.ctrlKey && !e.metaKey) return;   // w polu tekstowym Enter = nowa linia
+      // Lista rozwijana: pierwszy Enter rozwija listę, drugi — zatwierdza wybór
+      // i przechodzi do następnego pola.
+      if (t.tagName === "SELECT" && !e.shiftKey) {
+        if (_otwartaLista === t) {
+          _otwartaLista = null;
+          e.preventDefault(); e.stopPropagation();
+          idzDoPola(poleSasiednie(t, 1));
+          return;
+        }
+        _otwartaLista = t;
+        try {
+          if (typeof t.showPicker === "function") { t.showPicker(); return; }   // rozwija listę natywnie
+        } catch (err) { }
+        _otwartaLista = null;
+      }
       if (t.type === "checkbox" || t.type === "radio") {
         if (t.type === "checkbox") t.checked = !t.checked; else t.checked = true;
         t.dispatchEvent(new Event("change", { bubbles: true }));
@@ -2906,6 +2945,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     document.addEventListener("keydown", obslugaNawigacji, true);   // przechwytujemy, zanim zrobi to przeglądarka
     document.addEventListener("keydown", skrotyFunkcyjne, true);
     document.addEventListener("click", wyciszKlikZWolaniem, true);
+    document.addEventListener("click", zatwierdzListe, true);
     document.addEventListener("focusin", function (e) {
       var t = e.target;
       if (t && t.classList && t.matches && t.matches(SEL_POL)) t.classList.add("pole-akt");
@@ -2913,6 +2953,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     document.addEventListener("focusout", function (e) {
       var t = e.target;
       if (t && t.classList) t.classList.remove("pole-akt");
+      if (t === _otwartaLista) _otwartaLista = null;   // wyszliśmy z listy — stan czyścimy
     });
     $("#load-input").addEventListener("change", function (e) { if (e.target.files.length) wczytajPliki(e.target.files); });
     var dz = $("#drop");
@@ -3007,11 +3048,11 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
       if (j >= 0 && j < tl3.length) { var tmp = tl3[i]; tl3[i] = tl3[j]; tl3[j] = tmp; } commitOpis(); odswiezWidok(); return; }
     if (d.skadd) { var k = kafelekObj(t); k.sklad.push({ p: "", g: "" }); commitOpis(); odswiezWidok(); return; }
     if (d.skdel != null) { var k2 = kafelekObj(t); k2.sklad.splice(+d.skdel, 1); commitOpis(); odswiezWidok(); return; }
-    if (t.id === "btn-nowy-opis") { nowyOpis(); return; }
+
     if (t.id === "btn-nowe-wydz") { dodajWydz(); return; }
-    if (t.id === "btn-z-r") { wypelnijZR(); return; }
+
     if (t.id === "btn-dodaj-r") { dodajR(); return; }
-    if (t.id === "btn-auto-bon") { autoBonitacjaWydz(); return; }
+
     if (d.rdel != null) { usunR(+d.rdel); return; }
     if (t.id === "btn-dodaj-poz") { dodajPoz(); return; }
     if (d.waddco != null) { dodajWsp(+d.waddco); return; }
