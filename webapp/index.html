@@ -771,6 +771,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     brudne: {},          // typ pliku ("O","R","D","WSIE") -> true
     dict: {}, filtr: "", numery: {}, dzialki: {}, raport: "optax", kolW: {}, rejAkt: "", print: null,
     szablon: "nowy",    // "nowy" = szablon z FORESTLY (HTML/PDF), "tekst" = wydruk 1:1 jak w oryginale
+    nasNag: 40,         // nasycenie nagłówka tabeli (0-100%) dla OPTAX i REJESTRU
     extra: null         // dokument dodatkowy pokazany w podglądzie (strona tytułowa, skróty, opis ogólny)
   };
   var PLIKI = ["W", "D", "O", "R", "WSIE"];
@@ -900,6 +901,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
       if (sp && U.sanitizePrintSettings) S.print = U.sanitizePrintSettings(JSON.parse(sp), S.raport);
     } catch (e) { }
     wczytajSzablon();   // domyślnie nowy szablon wydruków (ten sam co w FORESTLY)
+    wczytajNasycenie(); // nasycenie nagłówka tabeli (suwak jak w FORESTLY)
     podepnijZdarzenia();
     odswiezWszystko();
   }
@@ -2289,9 +2291,35 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
   function wczytajSzablon() {
     try { var v = localStorage.getItem(SZABLON_KEY); if (v === "tekst" || v === "nowy") S.szablon = v; } catch (e) { }
   }
+  /* Nasycenie nagłówka tabeli — suwak jak w FORESTLY. Dotyczy wydruków,
+     w których szablon ma wypełniony nagłówek: Opisu taksacyjnego i Rejestru. */
+  var NAS_KEY = "mietek_nas_nag";
+  var _nasTimer = null;
+  function raportMaNasycenie(id) { return /^(optax|rejestr)$/.test(String(id || "")); }
+  function wczytajNasycenie() {
+    try {
+      var v = parseInt(localStorage.getItem(NAS_KEY), 10);
+      if (!isNaN(v)) S.nasNag = Math.max(0, Math.min(100, v));
+    } catch (e) { }
+  }
+  function ustawNasycenie(v) {
+    v = parseInt(v, 10);
+    if (isNaN(v)) v = 40;
+    S.nasNag = Math.max(0, Math.min(100, v));
+    try { localStorage.setItem(NAS_KEY, String(S.nasNag)); } catch (e) { }
+  }
+  function zaplanujOdswiezPodglad() {
+    if (_nasTimer) clearTimeout(_nasTimer);
+    _nasTimer = setTimeout(function () { _nasTimer = null; odswiezPodgladWydruku(); }, 260);
+  }
   function opcjeNowego() {
     var s = ustawieniaWydruku();
-    return { marginesy: (s && s.margins) || null, obiekt: obiektNazwa(), stan: stanNa() };
+    return {
+      marginesy: (s && s.margins) || null,
+      obiekt: obiektNazwa(),
+      stan: stanNa(),
+      nasycenie: S.nasNag
+    };
   }
   async function htmlNowegoWydruku(id) {
     var res = await window.pywebview.api.raport_nowy(id, generujRaport(id), opcjeNowego());
@@ -2451,6 +2479,13 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
       '<label class="pole"><span>Margines dolny [mm]</span><input id="m-bottom" type="number" min="0" max="50" step="0.1" value="' + s.margins.bottom + '"></label>' +
       '<label class="pole"><span>Margines lewy [mm]</span><input id="m-left" type="number" min="0" max="50" step="0.1" value="' + s.margins.left + '"></label>' +
       '</div><div class="przel"><button class="min" id="btn-reset-print">Przywróć domyślne</button></div></div>' +
+      (szablonNowy() && raportMaNasycenie(r) ?
+        '<div class="rej-panel" style="margin-top:8px"><h3>Nagłówek tabeli</h3>' +
+        '<label class="pole szer"><span>Nasycenie nagłówka: <b id="nas-val">' + S.nasNag + '%</b></span>' +
+        '<input type="range" id="nas-nag" min="0" max="100" step="5" value="' + S.nasNag + '" ' +
+        'style="width:100%;margin-top:6px"></label>' +
+        '<div class="mini-info">0% — białe tło z ciemnym pismem, 100% — ciemny grafit z białym. ' +
+        'Dotyczy Opisu taksacyjnego i Rejestru działek. Ustawienie pamięta się między uruchomieniami.</div></div>' : '') +
       '<div class="rej-panel" style="margin-top:8px"><h3>Dokumenty dodatkowe</h3>' +
       '<div class="przel">' +
       '<button class="min" id="btn-str-tyt">📄 Strona tytułowa</button>' +
@@ -2653,6 +2688,12 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     // filtr listy wydzieleń / rejestru
     if (t.id === "filtr-wydz") { S.filtr = t.value; odswiezListeWydz(); return; }
     if (t.id === "f-rejestr") { S.filtr = t.value; odswiezWidok(); var f = $("#f-rejestr"); if (f) { f.focus(); } return; }
+    if (t.id === "nas-nag") {
+      ustawNasycenie(t.value);
+      var lb = $("#nas-val"); if (lb) lb.textContent = S.nasNag + "%";
+      zaplanujOdswiezPodglad();
+      return;
+    }
     if (t.id === "print-format" || t.id === "print-orient" || t.id === "m-top" || t.id === "m-right" || t.id === "m-bottom" || t.id === "m-left") {
       S.print = U.sanitizePrintSettings ? U.sanitizePrintSettings({
         format: $("#print-format") ? $("#print-format").value : "A4",
