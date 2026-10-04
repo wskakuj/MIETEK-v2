@@ -2,3 +2,6 @@
 pywebview>=5.0
 pythonnet>=3.0;platform_system=="Windows"
 pyinstaller>=6.0
+
+# wydruki w nowym szablonie (strona tytułowa, wykaz skrótów, opisy ogólne)
+python-docx

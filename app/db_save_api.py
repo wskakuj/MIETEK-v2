@@ -6,7 +6,13 @@ import tempfile
 import threading
 from pathlib import Path
 
-class DbSaveApi:
+try:                                   # uruchomienie jako skrypt (app/ na sys.path)
+    from raporty_api import RaportyApi
+except ImportError:                    # uruchomienie jako pakiet
+    from .raporty_api import RaportyApi
+
+
+class DbSaveApi(RaportyApi):
     def __init__(self):
         self._window = None
         self._root = None

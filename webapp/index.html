@@ -769,7 +769,9 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
   var S = {
     obreby: [], aktywny: null, plikO: null, wybrane: null,
     brudne: {},          // typ pliku ("O","R","D","WSIE") -> true
-    dict: {}, filtr: "", numery: {}, dzialki: {}, raport: "optax", kolW: {}, rejAkt: "", print: null
+    dict: {}, filtr: "", numery: {}, dzialki: {}, raport: "optax", kolW: {}, rejAkt: "", print: null,
+    szablon: "nowy",    // "nowy" = szablon z FORESTLY (HTML/PDF), "tekst" = wydruk 1:1 jak w oryginale
+    extra: null         // dokument dodatkowy pokazany w podglądzie (strona tytułowa, skróty, opis ogólny)
   };
   var PLIKI = ["W", "D", "O", "R", "WSIE"];
 
@@ -897,6 +899,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
       var sp = localStorage.getItem("mietek_print");
       if (sp && U.sanitizePrintSettings) S.print = U.sanitizePrintSettings(JSON.parse(sp), S.raport);
     } catch (e) { }
+    wczytajSzablon();   // domyślnie nowy szablon wydruków (ten sam co w FORESTLY)
     podepnijZdarzenia();
     odswiezWszystko();
   }
@@ -2215,10 +2218,19 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     S.print = (U.sanitizePrintSettings ? U.sanitizePrintSettings(S.print, S.raport) : S.print);
     return S.print;
   }
-  function dokumentWydrukuObj() {
+  async function dokumentWydrukuObj() {
     var r = S.raport || "optax";
     var rp = raport(r);
     var txt = generujRaport(r);
+    if (szablonNowy() && maNowySzablon()) {
+      try {
+        var htmlNowy = await htmlNowegoWydruku(r);
+        return { html: htmlNowy, rp: rp, tekst: txt, pages: 0, maxLen: 0, nowy: true };
+      } catch (e) {
+        ustawSzablon("tekst");
+        alert("Nie udało się przygotować nowego szablonu (" + e.message + ").\nPokazuję wydruk w wyglądzie tekstowym.");
+      }
+    }
     var obj = U.reportHtml ? U.reportHtml({
       title: "MIETEK v2 — " + rp.nazwa,
       fileName: rp.plik,
@@ -2229,26 +2241,178 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     }) : { html: "", pages: 0, maxLen: 0, settings: ustawieniaWydruku() };
     obj.rp = rp;
     obj.tekst = txt;
+    obj.nowy = false;
     return obj;
   }
-  function odswiezPodgladWydruku() {
+  async function odswiezPodgladWydruku() {
     var fr = $("#ramka-wydruk");
     if (!fr) return;
-    var obj = dokumentWydrukuObj();
+    if (S.extra && S.extra.html) {
+      fr.onload = null; fr.srcdoc = S.extra.html;
+      var inf = $("#raport-info");
+      if (inf) inf.textContent = "Podgląd — " + S.extra.nazwa + " · nowy szablon";
+      odswiezPrzyciskiWydruku();
+      return;
+    }
+    var token = ++_wydrukToken;
+    var obj = await dokumentWydrukuObj();
+    if (token !== _wydrukToken) return;   // przyszło już nowsze żądanie
     dopasujRamkeV4(); fr.srcdoc = obj.html;
     var info = $("#raport-info");
-    if (info) info.textContent = "Podgląd — " + obj.rp.plik + " · " + obj.pages + " str. · " + obj.maxLen + " znaków · " + (obiektNazwa() ? ("obiekt: " + obiektNazwa()) : "brak obiektu");
+    if (info) info.textContent = "Podgląd — " + obj.rp.plik + (obj.nowy ? " · nowy szablon" : (" · " + obj.pages + " str. · " + obj.maxLen + " znaków")) + " · " + (obiektNazwa() ? ("obiekt: " + obiektNazwa()) : "brak obiektu");
+    odswiezPrzyciskiWydruku();
   }
   async function otworzHtmlWydruku(printNow) {
-    var obj=dokumentWydrukuObj();
+    var html = await htmlBiezacy();
     if(window.pywebview&&window.pywebview.api.open_report){
-      try{var result=await window.pywebview.api.open_report(obj.html,!!printNow);if(!result.ok)alert(result.error);}catch(e){alert('Błąd otwarcia wydruku: '+e.message);}
+      try{var result=await window.pywebview.api.open_report(html,!!printNow);if(!result.ok)alert(result.error);}catch(e){alert('Błąd otwarcia wydruku: '+e.message);}
       return;
     }
     var win=window.open('','_blank');
     if(!win){alert('Przeglądarka zablokowała okno wydruku.');return;}
-    win.document.open();win.document.write(obj.html);win.document.close();
+    win.document.open();win.document.write(html);win.document.close();
     if(printNow)setTimeout(function(){win.focus();win.print();},500);
+  }
+
+  /* ============================ NOWY SZABLON WYDRUKÓW ====================
+     Ten sam szablon, którego używa FORESTLY (moduł app/szablony.py):
+     tekst wydruku -> estetyczne strony A4 w HTML, a z nich PDF. Stary,
+     tekstowy wygląd 1:1 z oryginałem zostaje jako opcja. */
+  var SZABLON_KEY = "mietek_szablon";
+  var _wydrukToken = 0;
+  function maNowySzablon() { return !!(window.pywebview && window.pywebview.api && window.pywebview.api.raport_nowy); }
+  function szablonNowy() { return S.szablon !== "tekst"; }
+  function ustawSzablon(v) {
+    S.szablon = (v === "tekst") ? "tekst" : "nowy";
+    try { localStorage.setItem(SZABLON_KEY, S.szablon); } catch (e) { }
+  }
+  function wczytajSzablon() {
+    try { var v = localStorage.getItem(SZABLON_KEY); if (v === "tekst" || v === "nowy") S.szablon = v; } catch (e) { }
+  }
+  function opcjeNowego() {
+    var s = ustawieniaWydruku();
+    return { marginesy: (s && s.margins) || null, obiekt: obiektNazwa(), stan: stanNa() };
+  }
+  async function htmlNowegoWydruku(id) {
+    var res = await window.pywebview.api.raport_nowy(id, generujRaport(id), opcjeNowego());
+    if (!res || !res.ok) throw new Error((res && res.error) || "nieznany błąd");
+    return res.html;
+  }
+  // HTML, który aktualnie pokazuje podgląd: dokument dodatkowy albo wydruk
+  async function htmlBiezacy() {
+    if (S.extra && S.extra.html) return S.extra.html;
+    var obj = await dokumentWydrukuObj();
+    return obj.html;
+  }
+  async function pokazDokument(html, nazwa, zrodlo) {
+    S.extra = { html: html, nazwa: nazwa, zrodlo: zrodlo };
+    var fr = $("#ramka-wydruk");
+    if (fr) { fr.onload = null; fr.srcdoc = html; }
+    var info = $("#raport-info");
+    if (info) info.textContent = "Podgląd — " + nazwa + " · nowy szablon";
+    odswiezPrzyciskiWydruku();
+  }
+  function wyczyscDokument() { S.extra = null; odswiezWidok(); }
+  function odswiezPrzyciskiWydruku() {
+    var b = $("#btn-wroc-wydruk");
+    if (b) b.style.display = S.extra ? "" : "none";
+  }
+  function wsiePole(n) { var r = wsieRec(); return r ? String(r[n] == null ? "" : r[n]).trim() : ""; }
+  function nazwaWojew(v) {
+    v = String(v || "").trim(); if (!v) return "";
+    var m = slMap("WOJ"); if (m[v]) return m[v];
+    var f = (DICT.WOJ || []).find(function (x) { return String(x.kod).toUpperCase() === v.toUpperCase(); });
+    return f ? f.nazwa : v;
+  }
+  function daneTytulowe() {
+    return {
+      docType: S.tytTyp === "ISL" ? "ISL" : "UPUL",
+      prefix: "obręb",
+      woj: nazwaWojew(wsiePole("WOJEW")),
+      powiat: wsiePole("POWIAT"),
+      gmina: wsiePole("GMINA"),
+      stanNa: stanNa(),
+      okres: "",
+      village: wsiePole("NAZWA") || obiektNazwa()
+    };
+  }
+  async function pokazStroneTytulowa() {
+    if (!maNowySzablon() || !window.pywebview.api.strona_tytulowa) { alert("Strona tytułowa wymaga okna programu (uruchom uruchom.bat)."); return; }
+    try {
+      var res = await window.pywebview.api.strona_tytulowa(daneTytulowe());
+      if (!res.ok) { alert("Nie udało się przygotować strony tytułowej: " + res.error); return; }
+      await pokazDokument(res.html, "Strona tytułowa", "tytulowa");
+    } catch (e) { alert("Błąd strony tytułowej: " + e.message); }
+  }
+  async function pokazSkroty() {
+    if (!maNowySzablon() || !window.pywebview.api.skroty_html) { alert("Wykaz skrótów wymaga okna programu (uruchom uruchom.bat)."); return; }
+    try {
+      var res = await window.pywebview.api.skroty_html({ obiekt: obiektNazwa(), stan: stanNa() });
+      if (!res.ok) { alert("Nie udało się przygotować wykazu skrótów: " + res.error); return; }
+      await pokazDokument(res.html, "Wykaz skrótów i symboli", "skroty");
+    } catch (e) { alert("Błąd wykazu skrótów: " + e.message); }
+  }
+  async function pokazOpisDocx() {
+    if (!maNowySzablon() || !window.pywebview.api.wybierz_docx) { alert("Opis ogólny wymaga okna programu (uruchom uruchom.bat)."); return; }
+    try {
+      var wybor = await window.pywebview.api.wybierz_docx();
+      if (!wybor.ok) { if (!wybor.cancelled) alert(wybor.error); return; }
+      var res = await window.pywebview.api.docx_html(wybor.path);
+      if (!res.ok) { alert("Nie udało się wczytać dokumentu: " + res.error); return; }
+      S.extraSciezka = wybor.path;
+      await pokazDokument(res.html, wybor.path.split(/[\\/]/).pop(), "docx");
+    } catch (e) { alert("Błąd wczytywania dokumentu: " + e.message); }
+  }
+  async function folderNaPdf() {
+    var dom = { ok: true, folder: "" };
+    try { if (window.pywebview.api.folder_domyslny) dom = await window.pywebview.api.folder_domyslny(); } catch (e) { }
+    var res = await window.pywebview.api.wybierz_folder();
+    if (!res.ok) { if (!res.cancelled) alert(res.error); return null; }
+    return res.folder;
+  }
+  function nazwaPdf(id) { var rp = raport(id); return rp.plik.replace(/\.TXT$/i, ".pdf"); }
+  async function zapiszPdfWydruku() {
+    if (!maNowySzablon() || !window.pywebview.api.raport_nowy_pdf) { alert("Zapis PDF wymaga okna programu (uruchom uruchom.bat)."); return; }
+    var folder = await folderNaPdf(); if (!folder) return;
+    var info = $("#raport-info"); if (info) info.textContent = "Generuję PDF…";
+    try {
+      var r = S.raport || "optax";
+      var w = await window.pywebview.api.raport_nowy_pdf(r, generujRaport(r), folder, nazwaPdf(r), opcjeNowego());
+      if (!w.ok) { alert("Nie udało się zapisać PDF: " + w.error); odswiezPodgladWydruku(); return; }
+      alert("Zapisano PDF:\n" + w.path);
+    } catch (e) { alert("Błąd zapisu PDF: " + e.message); }
+    odswiezPodgladWydruku();
+  }
+  async function zapiszPdfWszystkich() {
+    if (!maNowySzablon() || !window.pywebview.api.raport_nowy_pdf) { alert("Zapis PDF wymaga okna programu (uruchom uruchom.bat)."); return; }
+    var folder = await folderNaPdf(); if (!folder) return;
+    var info = $("#raport-info"), ok = [], bledy = [];
+    for (var i = 0; i < RAPORTY.length; i++) {
+      var x = RAPORTY[i];
+      if (info) info.textContent = "Generuję PDF " + (i + 1) + "/" + RAPORTY.length + ": " + nazwaPdf(x.id) + "…";
+      try {
+        var w = await window.pywebview.api.raport_nowy_pdf(x.id, generujRaport(x.id), folder, nazwaPdf(x.id), opcjeNowego());
+        if (w && w.ok) ok.push(w.path); else bledy.push(nazwaPdf(x.id) + ": " + ((w && w.error) || "błąd"));
+      } catch (e) { bledy.push(nazwaPdf(x.id) + ": " + e.message); }
+    }
+    var komunikat = "Zapisano PDF-y (" + ok.length + " z " + RAPORTY.length + ") w:\n" + folder;
+    if (bledy.length) komunikat += "\n\nNie udało się:\n" + bledy.join("\n");
+    alert(komunikat);
+    odswiezPodgladWydruku();
+  }
+  async function zapiszPdfDokumentu() {
+    if (!S.extra || !S.extra.zrodlo) return;
+    if (!maNowySzablon()) { alert("Zapis PDF wymaga okna programu (uruchom uruchom.bat)."); return; }
+    var folder = await folderNaPdf(); if (!folder) return;
+    try {
+      var w;
+      if (S.extra.zrodlo === "tytulowa") w = await window.pywebview.api.strona_tytulowa_pdf(daneTytulowe(), folder, "STR_TYT.pdf");
+      else if (S.extra.zrodlo === "skroty") w = await window.pywebview.api.skroty_pdf(folder, "SKROTY.pdf", { obiekt: obiektNazwa(), stan: stanNa() });
+      else if (S.extra.zrodlo === "docx" && S.extraSciezka) w = await window.pywebview.api.docx_pdf(S.extraSciezka, folder);
+      if (!w) { alert("Nie ma czego zapisać."); return; }
+      if (!w.ok) { alert("Nie udało się zapisać PDF: " + w.error); return; }
+      alert("Zapisano PDF:\n" + w.path);
+    } catch (e) { alert("Błąd zapisu PDF: " + e.message); }
   }
 
   function widokWydruk() {
@@ -2263,13 +2427,22 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
       '<div class="przel"><button class="min akcja" id="btn-zapisz-txt">💾 Zapisz .TXT (CP852)</button>' +
       '<button class="min" id="btn-export-html">💾 Eksport HTML</button>' +
       '<button class="min" id="btn-open-html">🌐 Otwórz lokalny HTML</button>' +
-      '<button class="min" id="btn-drukuj-html">🖨 Drukuj / PDF</button></div></div>');
+      '<button class="min" id="btn-drukuj-html">🖨 Drukuj / PDF</button>' +
+      '<button class="min" id="btn-wroc-wydruk" style="display:none">↩ Wróć do wydruku</button></div></div>');
     h.push('<div class="wydruki-layout">');
     h.push('<div class="raport-lista no-print">');
     RAPORTY.forEach(function (x) {
       h.push('<button class="raport-btn' + (x.id === r ? " akt" : "") + '" data-raport="' + x.id + '">' + esc(x.nazwa) + "</button>");
     });
-    h.push('<div class="rej-panel" style="margin-top:8px"><h3>Ustawienia strony</h3>' +
+    h.push('<div class="rej-panel" style="margin-top:8px"><h3>Szablon wydruku</h3>' +
+      '<div class="przel">' +
+      '<button class="min' + (szablonNowy() ? " akcja" : "") + '" id="szab-nowy" title="Ten sam szablon, którego używa FORESTLY — estetyczne strony A4">Nowy szablon</button>' +
+      '<button class="min' + (!szablonNowy() ? " akcja" : "") + '" id="szab-tekst" title="Wydruk 1:1 jak z oryginalnego MIETKA">Tekstowy (1:1)</button>' +
+      '</div><div class="mini-info">' + (szablonNowy()
+        ? (maNowySzablon() ? "Nowy szablon: wydruk A4 z tabelami, w tym samym wyglądzie co w FORESTLY. Możesz też zapisać PDF."
+                           : "Nowy szablon działa w oknie programu (uruchom uruchom.bat). Teraz pokazuję wygląd tekstowy.")
+        : "Wydruk tekstowy — dokładnie jak z oryginalnego MIETKA (do zapisu .TXT i druku).") + '</div></div>' +
+      '<div class="rej-panel" style="margin-top:8px"><h3>Ustawienia strony</h3>' +
       '<div class="rej-panel-grid">' +
       '<label class="pole"><span>Format</span><select id="print-format"><option' + (s.format === "A4" ? " selected" : "") + '>A4</option><option' + (s.format === "A3" ? " selected" : "") + '>A3</option><option' + (s.format === "A5" ? " selected" : "") + '>A5</option><option' + (s.format === "LETTER" ? " selected" : "") + '>LETTER</option></select></label>' +
       '<label class="pole"><span>Orientacja</span><select id="print-orient"><option value="portrait"' + (s.orientation === "portrait" ? " selected" : "") + '>Pionowo</option><option value="landscape"' + (s.orientation === "landscape" ? " selected" : "") + '>Poziomo</option></select></label>' +
@@ -2277,7 +2450,19 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
       '<label class="pole"><span>Margines prawy [mm]</span><input id="m-right" type="number" min="0" max="50" step="0.1" value="' + s.margins.right + '"></label>' +
       '<label class="pole"><span>Margines dolny [mm]</span><input id="m-bottom" type="number" min="0" max="50" step="0.1" value="' + s.margins.bottom + '"></label>' +
       '<label class="pole"><span>Margines lewy [mm]</span><input id="m-left" type="number" min="0" max="50" step="0.1" value="' + s.margins.left + '"></label>' +
-      '</div><div class="przel"><button class="min" id="btn-reset-print">Przywróć domyślne</button></div></div>');
+      '</div><div class="przel"><button class="min" id="btn-reset-print">Przywróć domyślne</button></div></div>' +
+      '<div class="rej-panel" style="margin-top:8px"><h3>Dokumenty dodatkowe</h3>' +
+      '<div class="przel">' +
+      '<button class="min" id="btn-str-tyt">📄 Strona tytułowa</button>' +
+      '<button class="min" id="btn-skroty">📖 Wykaz skrótów</button>' +
+      '<button class="min" id="btn-opis-docx">📎 Opis ogólny (.docx)…</button>' +
+      '</div><div class="mini-info">Nowy szablon: strona tytułowa i wykaz skrótów powstają z danych obiektu, bez Worda.</div></div>' +
+      '<div class="rej-panel" style="margin-top:8px"><h3>Zapis do PDF</h3>' +
+      '<div class="przel">' +
+      '<button class="min akcja" id="btn-pdf-jeden">💾 Zapisz ten wydruk…</button>' +
+      '<button class="min" id="btn-pdf-wszystkie">📚 Wszystkie wydruki…</button>' +
+      '<button class="min" id="btn-pdf-dokument">📄 Zapisz dokument…</button>' +
+      '</div><div class="mini-info">PDF powstaje przez wbudowaną przeglądarkę (Edge/Chrome) — bez Worda. Pliki zapisują się w wybranym folderze.</div></div>');
     h.push("</div>");
     h.push('<div class="raport-podglad">');
     h.push('<div id="raport-info" class="raport-info no-print">Podgląd — ' + esc(rp.plik) + '</div>');
@@ -2551,15 +2736,29 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     if (d.wdel != null) { usunW(+d.wdel); return; }
     if (t.id === "btn-dodaj-d") { dodajD(); return; }
     if (d.ddel != null) { usunD(+d.ddel); return; }
-    if (d.raport) { zapiszProfilWydruku(); S.raport = d.raport; wczytajProfilWydruku(S.raport); odswiezWidok(); return; }
+    if (d.raport) { zapiszProfilWydruku(); S.raport = d.raport; S.extra = null; wczytajProfilWydruku(S.raport); odswiezWidok(); return; }
     if (t.id === "btn-zapisz-txt") { zapiszTxt(); return; }
     if (t.id === "btn-export-html") {
-      var ex = dokumentWydrukuObj();
-      pobierz(new Blob([ex.html], { type: "text/html;charset=utf-8" }), ex.rp.plik.replace(/\.TXT$/i, ".html"));
+      (async function () {
+        try {
+          var html = await htmlBiezacy();
+          var nazwa = S.extra ? (S.extra.nazwa + ".html") : raport(S.raport || "optax").plik.replace(/\.TXT$/i, ".html");
+          pobierz(new Blob([html], { type: "text/html;charset=utf-8" }), nazwa);
+        } catch (e) { alert("Błąd eksportu HTML: " + e.message); }
+      })();
       return;
     }
     if (t.id === "btn-open-html") { otworzHtmlWydruku(false); return; }
     if (t.id === "btn-drukuj-html") { otworzHtmlWydruku(true); return; }
+    if (t.id === "szab-nowy") { ustawSzablon("nowy"); odswiezWidok(); return; }
+    if (t.id === "szab-tekst") { ustawSzablon("tekst"); odswiezWidok(); return; }
+    if (t.id === "btn-wroc-wydruk") { wyczyscDokument(); return; }
+    if (t.id === "btn-str-tyt") { pokazStroneTytulowa(); return; }
+    if (t.id === "btn-skroty") { pokazSkroty(); return; }
+    if (t.id === "btn-opis-docx") { pokazOpisDocx(); return; }
+    if (t.id === "btn-pdf-jeden") { zapiszPdfWydruku(); return; }
+    if (t.id === "btn-pdf-wszystkie") { zapiszPdfWszystkich(); return; }
+    if (t.id === "btn-pdf-dokument") { zapiszPdfDokumentu(); return; }
     if (t.id === "btn-reset-print") {
       S.print = U.defaultPrintSettings ? U.defaultPrintSettings(S.raport) : { format: "A4", orientation: "landscape", margins: { top: 8, right: 6, bottom: 8, left: 6 } };
       zapiszProfilWydruku();

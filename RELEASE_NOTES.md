@@ -1,3 +1,3 @@
-# Co nowego w v2.0.12
+# Co nowego w v2.0.9
+- nowe szablony do wydruku
 
-- 
