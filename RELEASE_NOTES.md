@@ -1,3 +1,3 @@
-# Co nowego w v2.0.22
+# Co nowego w v2.0.23
 
 - 

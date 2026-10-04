@@ -2907,13 +2907,6 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
       // Na przycisku i liście rozwijanej przeglądarka ma własną reakcję na Enter
       // (kliknięcie przycisku / wybór pozycji). Blokujemy ją, żeby Enter zawsze
       // przechodził do następnego pola.
-      // „Dodaj segment": Enter dodaje segment i od razu przenosi kursor do
-      // wpisywania nowego segmentu (a nie tylko do następnego pola).
-      if (t.dataset && t.dataset.dodaj) {
-        e.preventDefault(); e.stopPropagation();
-        dodajSegment(t.dataset.dodaj);
-        return;
-      }
       if (t.tagName === "BUTTON") _blokujKlikDo = Date.now() + 600;
       e.preventDefault();
       e.stopPropagation();
@@ -3049,7 +3042,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     }
     var zak = t.closest && t.closest(".zakladka");
     if (zak) { document.body.dataset.zakl = zak.dataset.z; odswiezWidok(); return; }
-    if (d.dodaj) { dodajSegment(d.dodaj); return; }
+    if (d.dodaj) { var tl = pobierzKafelki(rekordWydz().rec); tl.push(nowyKafelek(d.dodaj)); commitOpis(); odswiezWidok(); return; }
     if (d.del) { var tl2 = pobierzKafelki(rekordWydz().rec); tl2.splice(+t.closest(".kafelek").dataset.i, 1); commitOpis(); odswiezWidok(); return; }
     if (d.move) { var tl3 = pobierzKafelki(rekordWydz().rec), i = +t.closest(".kafelek").dataset.i, j = i + (+d.move);
       if (j >= 0 && j < tl3.length) { var tmp = tl3[i]; tl3[i] = tl3[j]; tl3[j] = tmp; } commitOpis(); odswiezWidok(); return; }
@@ -3141,26 +3134,6 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     if (typ === "podszyt") return { t: typ, pct: "" };
     if (typ === "stan") return { t: typ, v: "Halizna" };
     return { t: typ, v: "" };
-  }
-  // Dodaj segment i przenieś kursor prosto do wpisywania nowego segmentu
-  // (Enter na kafelku „Dodaj segment" albo klik myszką).
-  function dodajSegment(typ) {
-    var rw = rekordWydz(); if (!rw) return;
-    var tl = pobierzKafelki(rw.rec);
-    tl.push(nowyKafelek(typ));
-    commitOpis();
-    odswiezWidok();
-    skoncentrujNowyKafelek();
-  }
-  // Ustaw fokus na pierwszym polu ostatniego (świeżo dodanego) kafelka,
-  // żeby można było od razu pisać ten segment.
-  function skoncentrujNowyKafelek() {
-    var kaf = $$(".kafelek");
-    var el = kaf.length ? kaf[kaf.length - 1] : null;
-    if (!el) return;
-    var cialo = el.querySelector(".kaf-cialo") || el;   // pola, nie przyciski nagłówka (↑ ↓ ✕)
-    var pola = Array.prototype.slice.call(cialo.querySelectorAll(SEL_POL)).filter(poleWidoczne);
-    if (pola.length) idzDoPola(pola[0]);
   }
   function edytujKafelek(t) {
     var k = kafelekObj(t), f = t.dataset.f;
