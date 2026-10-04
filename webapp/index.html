@@ -296,6 +296,7 @@ nav.zakladki{background:var(--panel);backdrop-filter:blur(14px);border-bottom:1p
   color:var(--tekst);border-radius:9px}
 .pole input:focus,.pole select:focus,input:focus,select:focus{outline:none;border-color:var(--ziel);box-shadow:0 0 0 3.5px rgba(45,212,167,.16)}
 /* MIETEK_NAV_V16 — wyraźne podświetlenie pola, na którym jesteśmy (nawigacja strzałkami) */
+.skrot{font-size:10px;opacity:.75;border:1px solid currentColor;border-radius:4px;padding:0 3px;margin-left:3px;vertical-align:1px}
 .pole-akt{outline:2.5px solid #f59e0b!important;outline-offset:1px;box-shadow:0 0 0 5px rgba(245,158,11,.22)!important;position:relative;z-index:3}
 [data-theme="light"] .pole-akt{outline-color:#d97706!important;box-shadow:0 0 0 5px rgba(217,119,6,.18)!important}
 input::placeholder{color:#7e8b9c;opacity:1}
@@ -391,13 +392,13 @@ pre.raport{color:#0b0f14}
   <div id="status"></div>
   <button id="btn-theme" title="Przełącz jasny / ciemny motyw">🌓 Motyw</button>
   <button id="btn-excel">Eksport do Excela</button>
-  <button id="btn-zapisz" disabled>Zapisz do DBF</button>
+  <button id="btn-zapisz" disabled title="Zapis do bazy DBF (F5)">Zapisz do DBF <span class="skrot">F5</span></button>
 </header>
 
 <div class="glowny">
   <aside>
     <div class="szuk"><input id="filtr-wydz" placeholder="Szukaj wydzielenia / opisu…"></div>
-    <div style="padding:0 10px 8px"><button class="min" id="btn-nowe-wydz" style="width:100%">＋ Nowe wydzielenie</button></div>
+    <div style="padding:0 10px 8px"><button class="min" id="btn-nowe-wydz" style="width:100%" title="Nowe wydzielenie (F8)">＋ Nowe wydzielenie <span class="skrot">F8</span></button></div>
     <div id="lista-wydz"></div>
   </aside>
   <main>
@@ -2755,17 +2756,25 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     if (st && (st.display === "none" || st.visibility === "hidden")) return false;
     return true;
   }
-  function polaFormularza() {
-    var root = document.getElementById("widok") || document.body;
+  // Które pola bierzemy pod uwagę: najpierw widok główny, a gdy pole jest
+  // poza nim (np. przycisk w panelu bocznym) — ten panel.
+  function kontenerPol(el) {
+    var w = document.getElementById("widok");
+    if (w && el && w.contains(el)) return w;
+    var a = el && el.closest ? el.closest("aside") : null;
+    return a || w || document.body;
+  }
+  function polaFormularza(el) {
+    var root = kontenerPol(el);
     return Array.prototype.slice.call(root.querySelectorAll(SEL_POL)).filter(poleWidoczne);
   }
   function poleSasiednie(el, krok) {
-    var p = polaFormularza(), i = p.indexOf(el);
+    var p = polaFormularza(el), i = p.indexOf(el);
     if (i < 0) return null;
     return p[i + krok] || null;
   }
   function poleWKolumnie(el, wGore) {
-    var p = polaFormularza(), r = el.getBoundingClientRect();
+    var p = polaFormularza(el), r = el.getBoundingClientRect();
     var cx = r.left + r.width / 2, cy = r.top + r.height / 2, best = null, bestD = Infinity;
     p.forEach(function (o) {
       if (o === el) return;
@@ -2792,7 +2801,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
   // zaznaczenie, więc po przerysowaniu odnajdujemy pole i wracamy do niego.
   function idzDoPola(el) {
     if (!el) return false;
-    _navCel = { klucz: kluczPola(el), idx: polaFormularza().indexOf(el) };
+    _navCel = { klucz: kluczPola(el), idx: polaFormularza(el).indexOf(el) };
     try { el.focus(); } catch (e) { }
     if (document.activeElement === el) kursorNaKoniec(el);
     setTimeout(odtworzPoleNav, 0);
@@ -2808,6 +2817,30 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     try { el.focus(); } catch (e) { }
     kursorNaKoniec(el);
   }
+  // Kliknięcia generowane klawiaturą (Enter/Spacja na przycisku) mają
+  // e.detail === 0 — tylko takie wyciszamy, prawdziwych myszką nie ruszamy.
+  var _blokujKlikDo = 0;
+  function wyciszKlikZWolaniem(e) {
+    if (e.detail === 0 && Date.now() < _blokujKlikDo) {
+      _blokujKlikDo = 0;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  }
+  // Skróty klawiaturowe: F8 — nowe wydzielenie, F5 — zapis do bazy DBF.
+  function skrotyFunkcyjne(e) {
+    if (e.key === "F8") {
+      e.preventDefault(); e.stopPropagation();
+      var b = document.getElementById("btn-nowe-wydz");
+      if (b && !b.disabled) b.click();
+      return;
+    }
+    if (e.key === "F5") {
+      e.preventDefault(); e.stopPropagation();
+      var z = document.getElementById("btn-zapisz");
+      if (z && !z.disabled) z.click();
+    }
+  }
   function obslugaNawigacji(e) {
     var t = e.target;
     if (!t || !t.tagName || !t.matches || !t.matches(SEL_POL) || t.disabled) return;
@@ -2819,7 +2852,12 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
         if (t.type === "checkbox") t.checked = !t.checked; else t.checked = true;
         t.dispatchEvent(new Event("change", { bubbles: true }));
       }
+      // Na przycisku i liście rozwijanej przeglądarka ma własną reakcję na Enter
+      // (kliknięcie przycisku / wybór pozycji). Blokujemy ją, żeby Enter zawsze
+      // przechodził do następnego pola.
+      if (t.tagName === "BUTTON") _blokujKlikDo = Date.now() + 600;
       e.preventDefault();
+      e.stopPropagation();
       idzDoPola(poleSasiednie(t, e.shiftKey ? -1 : 1));   // Shift+Enter — pole wstecz
       return;
     }
@@ -2852,7 +2890,9 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     document.addEventListener("input", onInput);
     document.addEventListener("change", onChange);
     document.addEventListener("click", onClick);
-    document.addEventListener("keydown", obslugaNawigacji);
+    document.addEventListener("keydown", obslugaNawigacji, true);   // przechwytujemy, zanim zrobi to przeglądarka
+    document.addEventListener("keydown", skrotyFunkcyjne, true);
+    document.addEventListener("click", wyciszKlikZWolaniem, true);
     document.addEventListener("focusin", function (e) {
       var t = e.target;
       if (t && t.classList && t.matches && t.matches(SEL_POL)) t.classList.add("pole-akt");

@@ -1,3 +1,3 @@
-# Co nowego w v2.0.19
+# Co nowego w v2.0.20
 
 - 
