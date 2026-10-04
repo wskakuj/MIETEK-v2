@@ -80,22 +80,38 @@ def _typ(t):
 
 
 def _marginesy_cm(opcje, typ):
-    """Marginesy z ustawień strony MIETKA (mm) na format modułu szablonów (cm).
+    """Marginesy z ustawień strony MIETKA (mm) na format szablonu (cm).
 
-    Moduł przyjmuje słownik {typ: (góra, dół, lewo, prawo)} w centymetrach.
-    Gdy użytkownik nic nie ustawił — zostają domyślne szablonu.
+    Szablon oczekuje gotowej czwórki (góra, prawo, dół, lewo) w centymetrach.
+    Gdy użytkownik nic nie ustawił — zwracamy None i zostają domyślne szablonu.
+    Pojedynczy bok bez wartości albo z wartością niepoprawną dostaje domyślną
+    wartość szablonu (żeby literówka w jednym polu nie rozwaliła wydruku).
     """
     m = (opcje or {}).get("marginesy")
     if not isinstance(m, dict):
         return None
-    try:
-        g, d, l, p = (float(m.get(k, 0)) / 10.0 for k in ("top", "bottom", "left", "right"))
-    except (TypeError, ValueError):
-        return None
-    if g <= 0 and d <= 0 and l <= 0 and p <= 0:
-        return None
-    # moduł czyta (góra, dół, lewo, prawo) i sam zamienia na (góra, prawo, dół, lewo)
-    return {typ: (g, d, l, p)}
+    dom = tuple(getattr(_sz, "_DOMYSLNE_MARGINESY", (1.3, 1.1, 1.5, 1.1)))
+    while len(dom) < 4:
+        dom = dom + (dom[-1],)
+    wart, podane = [], False
+    for klucz, domyslna in zip(("top", "right", "bottom", "left"), dom):
+        v = m.get(klucz)
+        if v is None or v == "":
+            wart.append(domyslna)
+            continue
+        try:
+            x = float(str(v).replace(",", ".")) / 10.0
+        except (TypeError, ValueError):
+            wart.append(domyslna)
+            continue
+        if x < 0 or x != x:            # ujemne albo NaN
+            wart.append(domyslna)
+            continue
+        wart.append(x)
+        podane = True
+    if not podane or all(x <= 0 for x in wart):
+        return None                    # wszystko zerowe -> domyślne szablonu
+    return tuple(wart)
 
 
 def _html_raportu(typ, tekst, opcje=None):
@@ -106,6 +122,9 @@ def _html_raportu(typ, tekst, opcje=None):
         raise ValueError("Nieznany wydruk: %s" % (typ,))
     opcje = opcje or {}
     mg = _marginesy_cm(opcje, t)
+    # renderery oczekują gotowej czwórki (góra, prawo, dół, lewo) albo None
+    if mg is not None and (not isinstance(mg, (tuple, list)) or len(mg) != 4):
+        mg = None
     cz = None
     if isinstance(opcje.get("czcionki"), dict):
         cz = opcje["czcionki"].get(t)
