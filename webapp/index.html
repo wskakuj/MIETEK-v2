@@ -295,6 +295,9 @@ nav.zakladki{background:var(--panel);backdrop-filter:blur(14px);border-bottom:1p
 .pole input,.pole select,select,input[type=text],input[type=date]{background:rgba(127,140,160,.07);border:1px solid var(--linia);
   color:var(--tekst);border-radius:9px}
 .pole input:focus,.pole select:focus,input:focus,select:focus{outline:none;border-color:var(--ziel);box-shadow:0 0 0 3.5px rgba(45,212,167,.16)}
+/* MIETEK_NAV_V16 — wyraźne podświetlenie pola, na którym jesteśmy (nawigacja strzałkami) */
+.pole-akt{outline:2.5px solid #f59e0b!important;outline-offset:1px;box-shadow:0 0 0 5px rgba(245,158,11,.22)!important;position:relative;z-index:3}
+[data-theme="light"] .pole-akt{outline-color:#d97706!important;box-shadow:0 0 0 5px rgba(217,119,6,.18)!important}
 input::placeholder{color:#7e8b9c;opacity:1}
 [data-theme="light"] input::placeholder{color:#8795a6}
 select option{background:#1b2027;color:#eef2f6}
@@ -602,7 +605,13 @@ pre.raport{color:#0b0f14}
   // Jeden segment na grupę wiekową, np. "8So,2Brz/70-80/75l"
   function segmentyDrzewostanu(t) {
     return grupyDrzewostanu(t).map(function (gr) {
-      var txt = gr.rows.map(function (x) { var p = (x.p == null || String(x.p).trim() === "") ? "10" : String(x.p).trim(); return p + x.g; }).join(",");
+      // Udziału 10 nie piszemy — "10So" to po prostu "So" (tak jak w oryginalnym MIETKU).
+      // Pozostałe udziały (9, 6, 1…) zostają.
+      var txt = gr.rows.map(function (x) {
+        var p = (x.p == null || String(x.p).trim() === "") ? "10" : String(x.p).trim();
+        var n = parseFloat(String(p).replace(",", "."));
+        return (n === 10 ? "" : p) + x.g;
+      }).join(",");
       var z = zakresRzedu(gr.ref);
       if (z.lo !== "" || z.hi !== "" || z.w) {
         return txt + "/" + z.lo + "-" + z.hi + "/" + (z.w || z.hi || z.lo || "") + "l";
@@ -1576,7 +1585,15 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
   function elementyDla(oddz, pod) { return rekordyR(oddz, pod).map(function (x) { return x.rec; }); }
   function elementGlowny(o) {
     var rs = elementyDla(o.ODDZIAL, o.PODODDZ);
-    return rs.filter(function (r) { return r.GATUNEK === o.GTD1; })[0] || rs[0] || {};
+    if (!rs.length) return {};
+    // 1) rekord zgodny z gatunkiem głównym z opisu wydzielenia
+    var g = rs.filter(function (r) { return r.GATUNEK && r.GATUNEK === o.GTD1; })[0];
+    if (g) return g;
+    // 2) inaczej rekord z rzeczywistą taksacją (wiek), a nie pusty zapis —
+    //    zdarza się, że wydzielenie ma dwa rekordy R, a jeden z nich jest pusty
+    var z = rs.filter(function (r) { return num(r.WIEK) > 0; });
+    if (z.length) return z[z.length - 1];
+    return rs[0];
   }
   function nryRej(o) {
     var dz = dzialkiDla(o.ODDZIAL, o.PODODDZ);
@@ -1589,16 +1606,52 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     for (var i = 0; i < full.length; i += C.OP_CELL) { var c = full.substr(i, C.OP_CELL).replace(/\s+$/, ""); if (c) out.push(c); }
     return out;
   }
+  // Kod wskazania z końcówką miąższości — tak jak w oryginalnym MIETKU:
+  // "TP" z 28 m3/ha daje "TP-28m3/ha". Wpisaną końcówkę najpierw zdejmujemy,
+  // żeby się nie dublowała.
+  function kodWskazania(wsk, mh) {
+    var base = String(wsk == null ? "" : wsk).replace(/-\d+m3\/ha$/i, "");
+    if (mh > 0 && base.indexOf("m3") < 0) return base + "-" + Math.trunc(mh) + "m3/ha";
+    return base;
+  }
+  // Miąższość na hektar dla wskazania: wpisana ręcznie, a przy rębni — zasobność.
+  function miazNaHa(wsk, miaz, zasob) {
+    var m = num(miaz);
+    if (m > 0) return m;
+    return /^Rb/i.test(String(wsk || "")) ? num(zasob) : 0;
+  }
+  // Miąższość do pokazania na wydruku (przestój bez udziału powierzchni jest
+  // wielkością całkowitą, nie na hektar).
+  function maksWskazania(w) {
+    if (!w) return 0;
+    return w.maksBezPow > 0 ? w.maksBezPow : w.maks;
+  }
+  // Miąższość zaokrąglona do m3 do wydruku — zero pokazujemy jako puste pole.
+  function zaokrMaks(w) {
+    var v = Math.round(maksWskazania(w));
+    return v ? String(v) : "";
+  }
+  // Wskazania dla wydzielenia. Miąższość liczymy zawsze jako
+  // (miąższość na ha) × (udział powierzchni wskazania / 100) × powierzchnia,
+  // a nie jak wcześniej — miąższość × cała powierzchnia wydzielenia
+  // (zawyżało wynik, gdy wskazanie obejmowało tylko część wydzielenia).
   function wskazaniaDla(o, powBase) {
     var el = elementyDla(o.ODDZIAL, o.PODODDZ), out = [];
     var P = (powBase == null ? num(o.POW_WYDZ) : num(powBase));
     el.forEach(function (r) {
       for (var n = 1; n <= 6; n++) {
-        if (r["WSK" + n]) {
-          var mm = num(r["MIAZ" + n]);
-          if (n === 1 && mm === 0 && /^Rb/i.test(r["WSK" + n] || "")) mm = num(r.ZASOB); // rębnie: masa = zasobność
-          out.push({ rodzaj: r["WSK" + n], pow: r4(num(r["POW_WSK" + n]) / 100 * P), maks: mm * P });
-        }
+        var w = String(r["WSK" + n] || "").trim();
+        if (!w) continue;
+        var pw = num(r["POW_WSK" + n]);
+        var mh = miazNaHa(w, r["MIAZ" + n], r.ZASOB);
+        out.push({
+          // końcówka "-..m3/ha" bierze się z WPISANEJ miąższości (przy rębni
+          // zostaje czysty kod, np. "Rb I" — tak jak w oryginale)
+          rodzaj: pw > 0 ? kodWskazania(w, num(r["MIAZ" + n])) : String(w).replace(/-\d+m3\/ha$/i, ""),
+          pow: pw > 0 ? r4(pw / 100 * P) : 0,
+          maks: pw > 0 ? (mh * (pw / 100) * P) : 0,
+          maksBezPow: pw > 0 ? 0 : Math.trunc(mh)
+        });
       }
     });
     return out;
@@ -1623,7 +1676,10 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
     OPosortowane().forEach(function (o) {
       var el = elementGlowny(o);
       var wsk = wskazaniaDla(o);
-      var lines = [padR(mapaKod("SSIEDLI", o.TYP_SIED) + "    " + (o.GTD1 || ""), 35)];
+      // opis: siedlisko (7 znaków) + trzy gatunki główne — tak jak w oryginale
+      var opis1 = (padR(mapaKod("SSIEDLI", o.TYP_SIED), 7) + padR(o.GTD1 || "", 4)
+                   + padR(o.GTD2 || "", 4) + (o.GTD3 || "")).replace(/\s+$/, "");
+      var lines = [padR(opis1, 35)];
       opisKomorki(o).forEach(function (c) { lines.push(padR(c, 35)); });
       var nry = nryRej(o);
       if (nry) zawin(nry, 35).forEach(function (c) { lines.push(padR(c, 35)); });
@@ -1631,11 +1687,13 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
       stream.push([padL(o.ODDZIAL + o.PODODDZ, 7), padL(fmt4(o.POW_WYDZ), 9), lines[0],
         padR(el.GATUNEK || "", 4), padL(el.WIEK || "", 4), padC5(el.KL_WIEK || ""),
         padL(el.WYS || "", 3), padL(el.PIERS || "", 4), padR(el.BONIT || "", 3),
-        padL(el.ZADRZEW || "", 3), padL(Math.round(num(el.ZASOB) * num(o.POW_WYDZ)) || "", 5),
+        padL(el.ZADRZEW || "", 3),
+        // przestój: masa podana jako wielkość całkowita, bez mnożenia przez powierzchnię
+        padL(Math.round(num(el.ZASOB) * (String(el.PRZES).toUpperCase() === "T" ? 1 : num(o.POW_WYDZ))) || "", 5),
         padR(wsk[0] ? wsk[0].rodzaj : "", 10), padL(wsk[0] ? fmt4(wsk[0].pow) : "", 9),
-        padL(wsk[0] && wsk[0].maks ? String(Math.round(wsk[0].maks)) : "", 5), "", "", ""]);
+        padL(zaokrMaks(wsk[0]), 5), "", "", ""]);
       for (var i = 1; i < lines.length; i++) stream.push(["", "", lines[i]].concat(puste.slice(3)));
-      for (var j = 1; j < wsk.length; j++) stream.push(["", "", "", "", "", "", "", "", "", "", "", padR(wsk[j].rodzaj, 10), padL(fmt4(wsk[j].pow), 9), padL(wsk[j].maks ? String(Math.round(wsk[j].maks)) : "", 5), "", "", ""]);
+      for (var j = 1; j < wsk.length; j++) stream.push(["", "", "", "", "", "", "", "", "", "", "", padR(wsk[j].rodzaj, 10), padL(fmt4(wsk[j].pow), 9), padL(zaokrMaks(wsk[j]), 5), "", "", ""]);
       stream.push("SEP");
     });
     if (stream.length && stream[stream.length - 1] === "SEP") stream.pop();
@@ -1863,7 +1921,7 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
           out.push(wiersz([padL(d.NR_DZIAL, 9), padC((d.ODDZIAL || "") + (d.PODODDZ || ""), 7),
             padL(fmt4(d.POW_L_ZAL), 9), padL(fmt4(num(d.POW_N_ZAL) + num(d.POW_INNE)), 9),
             padR(k === 0 ? opis : "", 19), padR(s ? s.rodzaj : "", 36),
-            padL(s ? fmt4(s.pow) : "", 12), padL(s && s.maks ? String(Math.round(s.maks)) : "", 7), padL("", 7), ""], seg));
+            padL(s ? fmt4(s.pow) : "", 12), padL(zaokrMaks(s), 7), padL("", 7), ""], seg));
         });
       });
       var segR = [17, 9, 9, 19, 36, 12, 7, 7, 12];
@@ -2660,18 +2718,128 @@ window.MIETEK_SBONITA=[["Bk",30,9.0,"II",0],["Bk",30,10.6,"I",60],["Bk",35,8.0,"
   var timerV10=setInterval(function(){uruchomAktualizacjeV10();if(startAktualizacjiV10||++oczekiwanieV10>=40)clearInterval(timerV10);},250);
 
 
+  /* ================= NAWIGACJA KLAWIATURĄ PO POLACH FORMULARZA =========
+     Strzałki przenoszą między polami, Enter przechodzi do następnego pola,
+     a pole, na którym jesteśmy, jest podświetlone. W polu tekstowym strzałki
+     lewo/prawo działają jak zwykle, dopóki kursor nie dojdzie do brzegu —
+     wtedy przechodzą do sąsiedniego pola (jak w arkuszu). W polu wyboru
+     góra/dół zmieniają wartość, a lewo/prawo przenoszą między polami.
+     Spacja nadal zaznacza pole wyboru bez wychodzenia z niego. */
+  var SEL_POL = 'input:not([type=hidden]):not([type=file]):not([disabled]),select:not([disabled]),textarea:not([disabled]),button:not([disabled])';
+  var _navCel = null;
+  function poleWidoczne(el) {
+    if (el.disabled) return false;
+    if (el.type === "hidden") return false;
+    if (el.closest && el.closest("[hidden]")) return false;
+    var st = el.style;
+    if (st && (st.display === "none" || st.visibility === "hidden")) return false;
+    return true;
+  }
+  function polaFormularza() {
+    var root = document.getElementById("widok") || document.body;
+    return Array.prototype.slice.call(root.querySelectorAll(SEL_POL)).filter(poleWidoczne);
+  }
+  function poleSasiednie(el, krok) {
+    var p = polaFormularza(), i = p.indexOf(el);
+    if (i < 0) return null;
+    return p[i + krok] || null;
+  }
+  function poleWKolumnie(el, wGore) {
+    var p = polaFormularza(), r = el.getBoundingClientRect();
+    var cx = r.left + r.width / 2, cy = r.top + r.height / 2, best = null, bestD = Infinity;
+    p.forEach(function (o) {
+      if (o === el) return;
+      var q = o.getBoundingClientRect(), dy = (q.top + q.height / 2) - cy;
+      if (wGore ? dy >= -1 : dy <= 1) return;
+      var d = Math.abs(dy) * 1000 + Math.abs((q.left + q.width / 2) - cx);
+      if (d < bestD) { bestD = d; best = o; }
+    });
+    return best || poleSasiednie(el, wGore ? -1 : 1);
+  }
+  function kluczPola(el) {
+    if (el.id) return "#" + el.id;
+    var d = el.dataset || {}, cz = [];
+    Object.keys(d).sort().forEach(function (k) { cz.push(k + "=" + d[k]); });
+    return el.tagName + "|" + (el.type || "") + "|" + cz.join(",");
+  }
+  function kursorNaKoniec(el) {
+    if (!el || !el.setSelectionRange) return;
+    var typ = el.tagName === "INPUT" ? (el.type || "text") : "";
+    if (el.tagName === "INPUT" && ["checkbox", "radio", "range", "date", "file", "color"].indexOf(typ) >= 0) return;
+    try { var L = String(el.value || "").length; el.setSelectionRange(L, L); } catch (e) { }
+  }
+  // Przejście do pola. Przerysowanie widoku (po zdarzeniu zmiany) gubi
+  // zaznaczenie, więc po przerysowaniu odnajdujemy pole i wracamy do niego.
+  function idzDoPola(el) {
+    if (!el) return false;
+    _navCel = { klucz: kluczPola(el), idx: polaFormularza().indexOf(el) };
+    try { el.focus(); } catch (e) { }
+    if (document.activeElement === el) kursorNaKoniec(el);
+    setTimeout(odtworzPoleNav, 0);
+    return true;
+  }
+  function odtworzPoleNav() {
+    var cel = _navCel; _navCel = null;
+    if (!cel) return;
+    var p = polaFormularza(), el = null;
+    for (var i = 0; i < p.length; i++) { if (kluczPola(p[i]) === cel.klucz) { el = p[i]; break; } }
+    if (!el && cel.idx >= 0 && cel.idx < p.length) el = p[cel.idx];
+    if (!el || document.activeElement === el) return;
+    try { el.focus(); } catch (e) { }
+    kursorNaKoniec(el);
+  }
+  function obslugaNawigacji(e) {
+    var t = e.target;
+    if (!t || !t.tagName || !t.matches || !t.matches(SEL_POL) || t.disabled) return;
+    var k = e.key;
+
+    if (k === "Enter") {
+      if (t.tagName === "TEXTAREA" && !e.ctrlKey && !e.metaKey) return;   // w polu tekstowym Enter = nowa linia
+      if (t.type === "checkbox" || t.type === "radio") {
+        if (t.type === "checkbox") t.checked = !t.checked; else t.checked = true;
+        t.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      e.preventDefault();
+      idzDoPola(poleSasiednie(t, e.shiftKey ? -1 : 1));   // Shift+Enter — pole wstecz
+      return;
+    }
+    if (k !== "ArrowUp" && k !== "ArrowDown" && k !== "ArrowLeft" && k !== "ArrowRight") return;
+
+    var wPolu = (t.tagName === "INPUT" && ["text", "number", "search", "tel", "date", "email", ""].indexOf(t.type || "") >= 0)
+                || t.tagName === "TEXTAREA";
+    if (wPolu) {
+      var v = String(t.value || ""), a = t.selectionStart, b = t.selectionEnd;
+      if (k === "ArrowLeft" && a === 0 && b === 0) { if (idzDoPola(poleSasiednie(t, -1))) e.preventDefault(); return; }
+      if (k === "ArrowRight" && a === v.length && b === v.length) { if (idzDoPola(poleSasiednie(t, 1))) e.preventDefault(); return; }
+      if (k === "ArrowUp") { if (idzDoPola(poleWKolumnie(t, true))) e.preventDefault(); return; }
+      if (k === "ArrowDown") { if (idzDoPola(poleWKolumnie(t, false))) e.preventDefault(); return; }
+      return;   // zwykłe poruszanie kursorem w tekście
+    }
+    if (t.tagName === "SELECT" || t.type === "range") {
+      if (k === "ArrowUp" || k === "ArrowDown") return;    // zmiana wartości natywnie
+      e.preventDefault();
+      idzDoPola(k === "ArrowLeft" ? poleSasiednie(t, -1) : poleSasiednie(t, 1));
+      return;
+    }
+    e.preventDefault();
+    var cel = (k === "ArrowUp") ? poleWKolumnie(t, true)
+            : (k === "ArrowDown") ? poleWKolumnie(t, false)
+            : (k === "ArrowLeft") ? poleSasiednie(t, -1) : poleSasiednie(t, 1);
+    idzDoPola(cel);
+  }
+
   function podepnijZdarzenia() {
     document.addEventListener("input", onInput);
     document.addEventListener("change", onChange);
     document.addEventListener("click", onClick);
-    // Enter na polu wyboru (np. "Przes.") zaznacza/odznacza — spacja działa natywnie.
-    document.addEventListener("keydown", function (e) {
-      if (e.key !== "Enter") return;
+    document.addEventListener("keydown", obslugaNawigacji);
+    document.addEventListener("focusin", function (e) {
       var t = e.target;
-      if (!t || t.tagName !== "INPUT" || t.type !== "checkbox" || !t.dataset || t.dataset.p == null) return;
-      e.preventDefault();
-      t.checked = !t.checked;
-      t.dispatchEvent(new Event("change", { bubbles: true }));
+      if (t && t.classList && t.matches && t.matches(SEL_POL)) t.classList.add("pole-akt");
+    });
+    document.addEventListener("focusout", function (e) {
+      var t = e.target;
+      if (t && t.classList) t.classList.remove("pole-akt");
     });
     $("#load-input").addEventListener("change", function (e) { if (e.target.files.length) wczytajPliki(e.target.files); });
     var dz = $("#drop");
